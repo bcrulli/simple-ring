@@ -64,6 +64,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         center.addObserver(forName: .openSettingsWindow, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.showSettings() }
         }
+        center.addObserver(forName: NSApplication.didResignActiveNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.hidePanel() }
+        }
         center.addObserver(forName: .menuBarWindowIdealSizeChanged, object: nil, queue: .main) { [weak self] note in
             guard let size = note.userInfo?["size"] as? CGSize else { return }
             MainActor.assumeIsolated {
@@ -140,8 +143,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             rootView: MainPopoverView().environmentObject(appState)
         )
 
-        applyPanelSize(animated: false)
-        positionPanel(panel)
+        panel.setFrame(anchoredFrame(size: targetPanelSize()), display: false)
         NSApp.activate(ignoringOtherApps: true)
         panel.makeKeyAndOrderFront(nil)
         panel.invalidateShadow()
@@ -153,14 +155,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     private func hidePanel() {
-        guard let panel, panel.isVisible else { return }
-        panel.orderOut(nil)
-        panel.contentView = NSView()
         stopOutsideClickMonitor()
+        guard let panel else { return }
+        panel.orderOut(nil)
+        panel.contentView = NSView()  // stops the streams via onDisappear
     }
 
     private func makePanel() -> NSPanel {
-        let panel = NSPanel(
+        let panel = MenuBarPanel(
             contentRect: NSRect(origin: .zero, size: idealSize),
             styleMask: [.borderless, .resizable, .nonactivatingPanel],
             backing: .buffered,
@@ -170,6 +172,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         panel.backgroundColor = .clear
         panel.hasShadow = true
         panel.level = .floating
+        // We hide it ourselves (hidePanel) so the streams are stopped too
+        panel.hidesOnDeactivate = false
         panel.isReleasedWhenClosed = false
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         panel.minSize = panelMinSize
@@ -177,30 +181,41 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         return panel
     }
 
-    /// Sizes the panel to the content's ideal size plus the user's drag offset,
-    /// keeping its top edge pinned under the menu bar.
-    private func applyPanelSize(animated: Bool) {
-        guard let panel else { return }
+    /// The content's ideal size plus whatever the user added by dragging.
+    private func targetPanelSize() -> NSSize {
         let offset = userSizeOffset
-        let size = NSSize(
+        return NSSize(
             width: max(panelMinSize.width, idealSize.width + offset.width),
             height: max(panelMinSize.height, idealSize.height + offset.height)
         )
-        let current = panel.frame
-        guard current.size != size else { return }
+    }
 
+    /// A frame of the given size, horizontally centred on the menu bar icon
+    /// with its top edge just below the menu bar (kept on screen).
+    private func anchoredFrame(size: NSSize) -> NSRect {
+        guard let buttonWindow = statusItem.button?.window else {
+            return NSRect(origin: panel?.frame.origin ?? .zero, size: size)
+        }
+        let anchor = buttonWindow.frame
         var frame = NSRect(
-            x: current.midX - size.width / 2,
-            y: current.maxY - size.height,
+            x: anchor.midX - size.width / 2,
+            y: anchor.minY - 4 - size.height,
             width: size.width,
             height: size.height
         )
-        if let visible = panel.screen?.visibleFrame {
+        if let visible = (buttonWindow.screen ?? NSScreen.main)?.visibleFrame {
             frame.origin.x = max(visible.minX + 8, min(frame.origin.x, visible.maxX - size.width - 8))
             frame.origin.y = max(visible.minY + 8, frame.origin.y)
         }
+        return frame
+    }
 
-        if animated && panel.isVisible {
+    /// Resizes the panel for new content (e.g. the events drawer opening).
+    private func applyPanelSize(animated: Bool) {
+        guard let panel, panel.isVisible else { return }
+        let frame = anchoredFrame(size: targetPanelSize())
+        guard frame != panel.frame else { return }
+        if animated {
             NSAnimationContext.runAnimationGroup { context in
                 context.duration = 0.3
                 context.timingFunction = CAMediaTimingFunction(name: .easeOut)
@@ -211,6 +226,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
     }
 
+    // Keep the panel centred under the menu bar icon while the user drags an edge
+    func windowDidResize(_ notification: Notification) {
+        guard let panel, notification.object as? NSPanel === panel, panel.inLiveResize else { return }
+        let origin = anchoredFrame(size: panel.frame.size).origin
+        if origin != panel.frame.origin {
+            panel.setFrameOrigin(origin)
+        }
+    }
+
     func windowDidEndLiveResize(_ notification: Notification) {
         guard let panel, notification.object as? NSPanel === panel else { return }
         userSizeOffset = CGSize(
@@ -218,24 +242,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             height: panel.frame.height - idealSize.height
         )
         panel.invalidateShadow()
-    }
-
-    private func positionPanel(_ panel: NSPanel) {
-        guard let buttonWindow = statusItem.button?.window else { return }
-        let buttonFrame = buttonWindow.frame
-        let panelSize = panel.frame.size
-
-        var origin = NSPoint(
-            x: buttonFrame.midX - panelSize.width / 2,
-            y: buttonFrame.minY - panelSize.height - 4
-        )
-
-        if let visible = (buttonWindow.screen ?? NSScreen.main)?.visibleFrame {
-            origin.x = max(visible.minX + 8, min(origin.x, visible.maxX - panelSize.width - 8))
-            origin.y = max(visible.minY + 8, origin.y)
-        }
-
-        panel.setFrameOrigin(origin)
     }
 
     private func startOutsideClickMonitor() {
@@ -272,6 +278,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             )
             window.title = "SimpleRing Settings"
             window.styleMask = [.titled, .closable]
+            // Same level as the panel so it opens on top of it without closing it,
+            // and hidden while another app is active so it doesn't float over it.
+            window.level = .floating
+            window.hidesOnDeactivate = true
             window.isReleasedWhenClosed = false
             window.center()
             return window
@@ -280,6 +290,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         NSApp.activate(ignoringOtherApps: true)
         window.makeKeyAndOrderFront(nil)
     }
+}
+
+// MARK: - Menu Bar Panel
+
+/// Borderless windows can't become key by default, which stops text fields
+/// (like the login form) from receiving keyboard input.
+private final class MenuBarPanel: NSPanel {
+    override var canBecomeKey: Bool { true }
 }
 
 // MARK: - Main Popover View (handles auth state)

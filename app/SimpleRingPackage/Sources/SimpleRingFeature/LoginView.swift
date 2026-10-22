@@ -101,7 +101,6 @@ public struct LoginView: View {
                 HStack {
                     // Settings button
                     Button {
-                        NotificationCenter.default.post(name: .closeMenuBarWindow, object: nil)
                         NotificationCenter.default.post(name: .openSettingsWindow, object: nil)
                     } label: {
                         Image(systemName: "gearshape")

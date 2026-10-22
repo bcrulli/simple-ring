@@ -117,7 +117,6 @@ public struct PopoverView: View {
 
     private var settingsButton: some View {
         Button {
-            NotificationCenter.default.post(name: .closeMenuBarWindow, object: nil)
             NotificationCenter.default.post(name: .openSettingsWindow, object: nil)
         } label: {
             Image(systemName: "gearshape.fill")
