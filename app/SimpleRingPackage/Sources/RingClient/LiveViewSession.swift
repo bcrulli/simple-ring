@@ -7,6 +7,18 @@ import Foundation
 /// POST to /integrations/v1/liveview/start with local SDP offer
 /// Receives SDP answer in response - no WebSocket signaling needed
 public actor LiveViewSession {
+    /// Which audio the session negotiates. Audio is opt-in because WebRTC opens
+    /// the audio device for playout, and when the output device is also an
+    /// input (AirPods, headsets, many USB devices) macOS shows the mic indicator.
+    public enum AudioMode: Sendable, Equatable {
+        /// Video only - no audio device is touched
+        case off
+        /// Hear the doorbell
+        case listen
+        /// Hear and talk (the mic is only opened while talking)
+        case talk
+    }
+
     public enum State: Sendable, Equatable {
         case idle
         case connecting
@@ -49,6 +61,7 @@ public actor LiveViewSession {
     // Push-to-talk state
     public private(set) var isTalking: Bool = false
 
+    public let audioMode: AudioMode
     private let deviceId: Int
     private let accessToken: String
     private let hardwareId: String
@@ -84,7 +97,8 @@ public actor LiveViewSession {
 
     // MARK: - Init
 
-    public init(deviceId: Int, accessToken: String, hardwareId: String) {
+    public init(deviceId: Int, accessToken: String, hardwareId: String, audioMode: AudioMode) {
+        self.audioMode = audioMode
         self.deviceId = deviceId
         self.accessToken = accessToken
         self.hardwareId = hardwareId
@@ -161,10 +175,6 @@ public actor LiveViewSession {
 
     /// Start talking - enables microphone
     public func startTalking() {
-        guard state == .connected else {
-            NSLog("🎤 PTT: Cannot start talking - not connected")
-            return
-        }
         // Attaching the track is what opens the microphone
         audioSender?.track = localAudioTrack
         isTalking = true
@@ -323,20 +333,25 @@ public actor LiveViewSession {
             throw LiveViewError.peerConnectionNotReady
         }
 
-        // Create local audio source/track for push-to-talk
-        let audioConstraints = RTCMediaConstraints(mandatoryConstraints: nil, optionalConstraints: nil)
-        let audioSource = factory.audioSource(with: audioConstraints)
-        localAudioTrack = factory.audioTrack(with: audioSource, trackId: "audio0")
-
-        // Add transceivers with both send and receive for two-way audio
+        // Audio m-line is always present (Ring expects it); its direction
+        // decides whether any audio device gets used.
         let audioTransceiverInit = RTCRtpTransceiverInit()
-        audioTransceiverInit.direction = .sendRecv
         audioTransceiverInit.streamIds = ["stream0"]
+        switch audioMode {
+        case .off: audioTransceiverInit.direction = .inactive
+        case .listen: audioTransceiverInit.direction = .recvOnly
+        case .talk: audioTransceiverInit.direction = .sendRecv
+        }
         let audioTransceiver = pc.addTransceiver(of: .audio, init: audioTransceiverInit)
-        // No track attached until push-to-talk: WebRTC opens the microphone
-        // whenever a track is attached, even a disabled one.
-        audioSender = audioTransceiver?.sender
-        audioSender?.track = nil
+
+        if audioMode == .talk {
+            let audioSource = factory.audioSource(with: RTCMediaConstraints(mandatoryConstraints: nil, optionalConstraints: nil))
+            localAudioTrack = factory.audioTrack(with: audioSource, trackId: "audio0")
+            // No track attached until talking: WebRTC opens the microphone
+            // whenever a track is attached, even a disabled one.
+            audioSender = audioTransceiver?.sender
+            audioSender?.track = nil
+        }
 
         // Set up video transceiver for receiving only
         let videoTransceiverInit = RTCRtpTransceiverInit()
@@ -349,13 +364,9 @@ public actor LiveViewSession {
             throw LiveViewError.peerConnectionNotReady
         }
 
-        let constraints = RTCMediaConstraints(
-            mandatoryConstraints: [
-                "OfferToReceiveVideo": "true",
-                "OfferToReceiveAudio": "true"
-            ],
-            optionalConstraints: nil
-        )
+        // No legacy OfferToReceive* constraints: with unified plan they force
+        // transceivers to receive, which would override the audio mode.
+        let constraints = RTCMediaConstraints(mandatoryConstraints: nil, optionalConstraints: nil)
 
         let offer = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<RTCSessionDescription, Error>) in
             pc.offer(for: constraints) { sdp, error in

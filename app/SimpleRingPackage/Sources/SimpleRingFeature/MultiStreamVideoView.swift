@@ -13,7 +13,6 @@ public struct MultiStreamVideoView: View {
     let onClose: () -> Void
     let onSwitchDevice: (RingDevice) -> Void
 
-    @State private var isTalking = false
     @State private var isHovering = false  // Auto-hide overlay when not hovering
     @AppStorage("showBatteryIndicator") private var showBatteryIndicator = true
 
@@ -60,7 +59,7 @@ public struct MultiStreamVideoView: View {
     }
 
     private var controlsVisible: Bool {
-        isHovering || isTalking || videoTrack == nil
+        isHovering || streamManager.isTalking || videoTrack == nil
     }
 
     public var body: some View {
@@ -69,13 +68,12 @@ public struct MultiStreamVideoView: View {
             Color.black
 
             if let track = videoTrack {
-                WebRTCVideoView(
-                    videoTrack: track,
-                    isPortrait: device.deviceType == .doorbell
-                )
+                WebRTCVideoView(videoTrack: track) { aspect in
+                    streamManager.setVideoAspect(aspect, for: device.id)
+                }
                 .scaleEffect(zoomScale)
                 .offset(zoomOffset)
-                .id(device.id)  // portrait cropping is fixed per renderer
+                .id(device.id)
                 .gesture(zoomPanGesture)
                 #if os(macOS)
                 .onScrollWheel { delta in
@@ -301,59 +299,37 @@ public struct MultiStreamVideoView: View {
             }
     }
 
-    // MARK: - Push-to-Talk Button
+    // MARK: - Talk Button
 
+    /// Tap to talk, tap again to stop. The first tap reconnects the camera with
+    /// a microphone; the mic is only open while talking.
     private var pushToTalkButton: some View {
-        ZStack {
-            // Pulsing ring when talking
-            if isTalking {
+        let talking = streamManager.isTalking
+        let reconnecting = streamManager.activeAudioMode == .talk && videoTrack == nil
+        return Button {
+            Task { await streamManager.toggleTalking() }
+        } label: {
+            ZStack {
                 Circle()
-                    .stroke(Color.Ring.accent, lineWidth: 3)
-                    .frame(width: 66, height: 66)
-                    .opacity(isTalking ? 0.5 : 0)
-                    .scaleEffect(isTalking ? 1.2 : 1.0)
-                    .animation(.easeInOut(duration: 0.6).repeatForever(autoreverses: true), value: isTalking)
-            }
-
-            // Main button
-            Circle()
-                .fill(isTalking ? Color.Ring.accent : Color.Ring.accent.opacity(0.8))
-                .frame(width: 56, height: 56)
-                .overlay(
-                    Image(systemName: isTalking ? "waveform" : "mic.fill")
-                        .font(.system(size: 18, weight: .semibold))
+                    .fill(talking ? Color.Ring.error : Color.Ring.accent)
+                    .frame(width: 52, height: 52)
+                    .shadow(color: (talking ? Color.Ring.error : Color.Ring.accent).opacity(0.5), radius: talking ? 12 : 6)
+                if reconnecting {
+                    ProgressView()
+                        .controlSize(.small)
+                        .tint(.white)
+                } else {
+                    Image(systemName: talking ? "mic.fill" : "mic")
+                        .font(.system(size: 19, weight: .semibold))
                         .foregroundStyle(.white)
-                )
-                .scaleEffect(isTalking ? 1.1 : 1.0)
-                .shadow(color: isTalking ? Color.Ring.accent.opacity(0.6) : .clear, radius: 8)
-        }
-        .animation(.easeInOut(duration: 0.15), value: isTalking)
-        .gesture(
-            DragGesture(minimumDistance: 0)
-                .onChanged { _ in
-                    if !isTalking {
-                        startTalking()
-                    }
+                        .symbolEffect(.pulse, isActive: talking)
                 }
-                .onEnded { _ in
-                    stopTalking()
-                }
-        )
-        .help("Hold to talk")
-    }
-
-    private func startTalking() {
-        isTalking = true
-        Task {
-            await streamManager.startTalking(for: device.id)
+            }
+            .contentShape(Circle())
         }
-    }
-
-    private func stopTalking() {
-        isTalking = false
-        Task {
-            await streamManager.stopTalking(for: device.id)
-        }
+        .buttonStyle(.plain)
+        .animation(.easeInOut(duration: 0.15), value: talking)
+        .help(talking ? "Stop talking" : "Talk")
     }
 
     // MARK: - Zoom Indicator
@@ -551,13 +527,14 @@ public struct MultiStreamVideoView: View {
             pushToTalkButton
 
             HStack {
+                let listening = streamManager.activeAudioMode != .off
                 glassButton(
-                    streamManager.isMuted ? "speaker.slash.fill" : "speaker.wave.2.fill",
+                    listening ? "speaker.wave.2.fill" : "speaker.slash.fill",
                     size: 36,
-                    activeColor: streamManager.isMuted ? Color.Ring.error : nil,
-                    help: streamManager.isMuted ? "Unmute" : "Mute"
+                    activeColor: listening ? Color.Ring.accent : nil,
+                    help: listening ? "Turn sound off" : "Turn sound on"
                 ) {
-                    streamManager.setMuted(!streamManager.isMuted)
+                    Task { await streamManager.setListening(!listening) }
                 }
 
                 Spacer()
@@ -580,7 +557,6 @@ public struct MultiStreamVideoView: View {
         )
     }
 
-    /// Circular frosted-glass button used for every overlay control.
     private func glassButton(
         _ systemName: String,
         size: CGFloat,
@@ -588,18 +564,7 @@ public struct MultiStreamVideoView: View {
         help: String,
         action: @escaping () -> Void
     ) -> some View {
-        Button(action: action) {
-            Image(systemName: systemName)
-                .font(.system(size: size * 0.4, weight: .semibold))
-                .foregroundStyle(activeColor ?? .white)
-                .frame(width: size, height: size)
-                .background(Circle().fill((activeColor ?? .black).opacity(activeColor == nil ? 0.3 : 0.25)))
-                .background(.ultraThinMaterial, in: Circle())
-                .environment(\.colorScheme, .dark)
-                .contentShape(Circle())
-        }
-        .buttonStyle(.plain)
-        .help(help)
+        GlassButton(systemName: systemName, size: size, activeColor: activeColor, help: help, action: action)
     }
 }
 

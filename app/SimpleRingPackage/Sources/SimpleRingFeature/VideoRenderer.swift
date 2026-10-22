@@ -7,15 +7,18 @@ import CoreVideo
 
 struct WebRTCVideoView: NSViewRepresentable {
     let videoTrack: RTCVideoTrack
-    let isPortrait: Bool
+    /// Called with the video's width / height when it's first known or changes
+    var onAspectChange: (CGFloat) -> Void = { _ in }
 
     func makeNSView(context: Context) -> MetalVideoView {
-        let view = MetalVideoView(isPortrait: isPortrait)
+        let view = MetalVideoView()
+        view.onAspectChange = onAspectChange
         context.coordinator.attach(view: view, track: videoTrack)
         return view
     }
 
     func updateNSView(_ nsView: MetalVideoView, context: Context) {
+        nsView.onAspectChange = onAspectChange
         context.coordinator.attach(view: nsView, track: videoTrack)
     }
 
@@ -85,8 +88,8 @@ final class FrameRenderer: NSObject, RTCVideoRenderer, @unchecked Sendable {
 
 // MARK: - Metal Video View
 
-/// Draws NV12 / BGRA WebRTC frames with Metal, aspect-fit inside the view.
-/// Doorbells (portrait) are cropped to 9:16 from their wide/square stream.
+/// Draws NV12 / BGRA WebRTC frames with Metal, aspect-fit inside the view
+/// (the window is sized to the video's aspect ratio, so normally there are no bars).
 @MainActor
 final class MetalVideoView: NSView {
     private struct VertexUniforms {
@@ -106,10 +109,10 @@ final class MetalVideoView: NSView {
 
     private let metalLayer = CAMetalLayer()
     private var textureCache: CVMetalTextureCache?
-    private let isPortrait: Bool
+    private var lastAspect: CGFloat = 0
+    var onAspectChange: (CGFloat) -> Void = { _ in }
 
-    init(isPortrait: Bool) {
-        self.isPortrait = isPortrait
+    init() {
         super.init(frame: .zero)
         wantsLayer = true
         metalLayer.device = Self.device
@@ -179,10 +182,14 @@ final class MetalVideoView: NSView {
         pass.colorAttachments[0].storeAction = .store
 
         guard let encoder = commandBuffer.makeRenderCommandEncoder(descriptor: pass) else { return }
-        var vertex = vertexUniforms(
-            sourceWidth: CGFloat(CVPixelBufferGetWidth(pixelBuffer)),
-            sourceHeight: CGFloat(CVPixelBufferGetHeight(pixelBuffer))
-        )
+        let sourceWidth = CGFloat(CVPixelBufferGetWidth(pixelBuffer))
+        let sourceHeight = CGFloat(CVPixelBufferGetHeight(pixelBuffer))
+        let aspect = sourceWidth / sourceHeight
+        if abs(aspect - lastAspect) > 0.01 {
+            lastAspect = aspect
+            onAspectChange(aspect)
+        }
+        var vertex = vertexUniforms(contentAspect: aspect)
         encoder.setRenderPipelineState(pipeline)
         encoder.setVertexBytes(&vertex, length: MemoryLayout<VertexUniforms>.stride, index: 0)
         encoder.setFragmentBytes(&colors, length: MemoryLayout<ColorUniforms>.stride, index: 0)
@@ -199,22 +206,14 @@ final class MetalVideoView: NSView {
         commandBuffer.commit()
     }
 
-    private func vertexUniforms(sourceWidth: CGFloat, sourceHeight: CGFloat) -> VertexUniforms {
-        // Crop portrait devices to 9:16 when the stream is wider than that
-        var cropWidth: CGFloat = 1
-        if isPortrait, sourceWidth / sourceHeight > 9.0 / 16.0 {
-            cropWidth = (sourceHeight * 9 / 16) / sourceWidth
-        }
-        let xMin = Float((1 - cropWidth) / 2)
-
-        // Aspect-fit the (cropped) content inside the view
-        let contentAspect = (sourceWidth * cropWidth) / sourceHeight
+    private func vertexUniforms(contentAspect: CGFloat) -> VertexUniforms {
+        // Aspect-fit the full frame inside the view
         let viewAspect = bounds.width / bounds.height
         let scale: SIMD2<Float> = contentAspect > viewAspect
             ? SIMD2(1, Float(viewAspect / contentAspect))
             : SIMD2(Float(contentAspect / viewAspect), 1)
 
-        return VertexUniforms(scale: scale, texMin: SIMD2(xMin, 0), texMax: SIMD2(1 - xMin, 1))
+        return VertexUniforms(scale: scale, texMin: SIMD2(0, 0), texMax: SIMD2(1, 1))
     }
 
     private func makeTexture(_ pixelBuffer: CVPixelBuffer, plane: Int?, format: MTLPixelFormat) -> (MTLTexture, CVMetalTexture)? {

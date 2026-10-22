@@ -18,12 +18,12 @@ It's a stripped-down fork of [open-ring](https://github.com/abracadabra50/open-r
 ## Features
 
 - **Live video** — WebRTC streams from every camera, with instant switching (swipe, arrows or ⌘1–4)
-- **Push-to-talk** — hold the microphone button to talk to visitors
+- **Audio on demand** — video-only by default, so no audio device (or mic indicator) is used until you turn sound on; tap the mic to talk, tap again to stop
 - **Zoom** — scroll, +/−, or the zoom buttons (up to 4×); 0 resets
 - **Device controls** — floodlight and siren, where the device has them
-- **Events** — recent rings and motion, filterable; click one to play the recording and save it as MP4
+- **Events** — recent rings and motion grouped by day, filterable; click one to play its recording full size and save it as MP4
 - **Notifications** — native alerts for new rings and motion, checked every 15 s – 2 min
-- **Resizable window** — drag any edge; expanding the events drawer grows the window instead of shrinking the video
+- **Sized to the video** — the window matches each camera's aspect ratio (no black bars) and keeps it while you drag an edge
 
 ## Install
 

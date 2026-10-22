@@ -11,11 +11,12 @@ public struct PopoverView: View {
     @Binding var selectedDevice: RingDevice?
     let isVisible: Bool
 
-    @State private var playingVideoURL: URL?
-    @State private var isLoadingVideo = false
+    @State private var recording: RecordingState?
     @StateObject private var streamManager = MultiStreamManager()
 
     @AppStorage("drawerExpanded") private var isDrawerExpanded = true
+
+    private let drawerExpandedHeight: CGFloat = 230
 
     // Filter to only cameras and doorbells (not chimes)
     private var videoDevices: [RingDevice] {
@@ -40,29 +41,24 @@ public struct PopoverView: View {
         isVisible ? videoDevices.map(\.id) : []
     }
 
-    private var drawerExpandedHeight: CGFloat {
-        playingVideoURL != nil || isLoadingVideo ? 320 : 200
-    }
-
     private var drawerVisibleHeight: CGFloat {
         isDrawerExpanded ? drawerExpandedHeight : DrawerMetrics.handleHeight
     }
 
-    // The size this content would like the window to be. The window adds any
-    // extra size the user gave it by dragging, so toggling the drawer grows or
-    // shrinks the window rather than resizing the video.
-    private var idealSize: CGSize {
+    /// Window layout: the video area at the camera's real aspect ratio (known
+    /// from its frames; a sensible default until then) plus the drawer.
+    private var layout: WindowLayout {
         guard let device = selectedDevice else {
-            return CGSize(width: 340, height: 420)
+            return WindowLayout(idealSize: CGSize(width: 400, height: 420), videoAspect: nil, chromeHeight: 0)
         }
-        switch device.deviceType {
-        case .doorbell:
-            return CGSize(width: 340, height: 500 + drawerVisibleHeight)
-        case .camera:
-            return CGSize(width: 480, height: 270 + drawerVisibleHeight)
-        default:
-            return CGSize(width: 400, height: 300 + drawerVisibleHeight)
-        }
+        let aspect = streamManager.videoAspects[device.id]
+            ?? (device.deviceType == .doorbell ? 1.0 : 16.0 / 9.0)
+        let width: CGFloat = aspect >= 1.3 ? 480 : 400
+        return WindowLayout(
+            idealSize: CGSize(width: width, height: width / aspect + drawerVisibleHeight),
+            videoAspect: aspect,
+            chromeHeight: drawerVisibleHeight
+        )
     }
 
     public var body: some View {
@@ -71,28 +67,35 @@ public struct PopoverView: View {
 
             if let device = selectedDevice {
                 VStack(spacing: 0) {
-                    MultiStreamVideoView(
-                        device: device,
-                        devices: videoDevices,
-                        streamManager: streamManager,
-                        onClose: {
-                            NotificationCenter.default.post(name: .closeMenuBarWindow, object: nil)
-                        },
-                        onSwitchDevice: { newDevice in
-                            selectedDevice = newDevice
-                        }
-                    )
-                    .frame(maxHeight: .infinity)
+                    ZStack {
+                        MultiStreamVideoView(
+                            device: device,
+                            devices: videoDevices,
+                            streamManager: streamManager,
+                            onClose: {
+                                NotificationCenter.default.post(name: .closeMenuBarWindow, object: nil)
+                            },
+                            onSwitchDevice: { newDevice in
+                                recording = nil
+                                selectedDevice = newDevice
+                            }
+                        )
 
-                    DrawerPanel(
-                        isExpanded: $isDrawerExpanded,
-                        expandedHeight: drawerExpandedHeight
-                    ) {
-                        EventTimelinePanel(
-                            playingVideoURL: $playingVideoURL,
-                            isLoadingVideo: $isLoadingVideo,
+                        if let recording {
+                            RecordingOverlay(recording: recording) {
+                                self.recording = nil
+                            }
+                            .transition(.opacity)
+                        }
+                    }
+                    .frame(maxHeight: .infinity)
+                    .animation(.easeInOut(duration: 0.2), value: recording?.event.id)
+
+                    DrawerPanel(isExpanded: $isDrawerExpanded, expandedHeight: drawerExpandedHeight) {
+                        EventsPanel(
                             events: events,
-                            onEventTap: { event in playEvent(event) }
+                            selectedEventId: recording?.event.id,
+                            onSelect: play
                         )
                     }
                     .overlay(alignment: .topTrailing) {
@@ -110,7 +113,7 @@ public struct PopoverView: View {
             }
         }
         .frame(minWidth: 300, maxWidth: .infinity, minHeight: 320, maxHeight: .infinity)
-        .idealWindowSize(idealSize)
+        .windowLayout(layout)
         // (Re)starts streams when the window opens or the cameras change (on
         // launch the view can appear before devices load); stops them on hide.
         .task(id: streamKey) {
@@ -119,7 +122,7 @@ public struct PopoverView: View {
             await streamManager.startAllStreams(for: videoDevices)
         }
         .onChange(of: isVisible) { _, visible in
-            if !visible { playingVideoURL = nil }  // stop any recording playback
+            if !visible { recording = nil }
         }
         .onDisappear {
             Task { await streamManager.stopAllStreams() }
@@ -133,8 +136,8 @@ public struct PopoverView: View {
             NotificationCenter.default.post(name: .openSettingsWindow, object: nil)
         } label: {
             Image(systemName: "gearshape.fill")
-                .font(.system(size: 12))
-                .foregroundStyle(.white.opacity(0.45))
+                .font(.system(size: 11))
+                .foregroundStyle(.white.opacity(0.4))
                 .frame(width: 28, height: DrawerMetrics.handleHeight)
                 .contentShape(Rectangle())
         }
@@ -143,17 +146,19 @@ public struct PopoverView: View {
         .help("Settings")
     }
 
-    // MARK: - Event Playback
+    // MARK: - Recordings
 
-    private func playEvent(_ event: RingEvent) {
-        isLoadingVideo = true
+    private func play(_ event: RingEvent) {
+        recording = RecordingState(event: event)
         Task {
             do {
-                playingVideoURL = try await RingClient.shared.getEventVideoURL(eventId: event.id)
+                let url = try await RingClient.shared.getEventVideoURL(eventId: event.id)
+                guard recording?.event.id == event.id else { return }
+                recording?.url = url
             } catch {
-                NSLog("❌ Failed to get event video for \(event.id): \(error)")
+                guard recording?.event.id == event.id else { return }
+                recording?.error = error.localizedDescription
             }
-            isLoadingVideo = false
         }
     }
 }

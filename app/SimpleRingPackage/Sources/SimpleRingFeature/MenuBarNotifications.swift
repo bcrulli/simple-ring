@@ -15,25 +15,45 @@ public extension Notification.Name {
     /// Open the Settings window.
     static let openSettingsWindow = Notification.Name("SimpleRing.openSettingsWindow")
 
-    /// The visible content's ideal size changed. userInfo["size"] is a CGSize.
+    /// The visible content's window layout changed. userInfo["layout"] is a WindowLayout.
     static let menuBarWindowIdealSizeChanged = Notification.Name("SimpleRing.menuBarWindowIdealSizeChanged")
 }
 
+/// How the visible content wants the window sized.
+public struct WindowLayout: Equatable, Sendable {
+    /// Default size for this content
+    public var idealSize: CGSize
+    /// Live video's width / height. When set, the window keeps the video area
+    /// at this aspect ratio (no black bars), including while resizing.
+    public var videoAspect: CGFloat?
+    /// Height of everything below/around the video (e.g. the events drawer)
+    public var chromeHeight: CGFloat
+
+    public init(idealSize: CGSize, videoAspect: CGFloat?, chromeHeight: CGFloat) {
+        self.idealSize = idealSize
+        self.videoAspect = videoAspect
+        self.chromeHeight = chromeHeight
+    }
+}
+
 public extension View {
-    /// Tells the menu bar panel how big this content would like to be. The panel
-    /// adds any extra size the user gave it by dragging its edges, so e.g.
-    /// expanding the events drawer grows the window instead of squeezing the video.
-    func idealWindowSize(_ size: CGSize) -> some View {
+    /// Tells the menu bar panel how this content wants the window sized.
+    func windowLayout(_ layout: WindowLayout) -> some View {
         self
-            .onAppear { Self.post(size) }
-            .onChange(of: size) { _, newSize in Self.post(newSize) }
+            .onAppear { postWindowLayout(layout) }
+            .onChange(of: layout) { _, newLayout in postWindowLayout(newLayout) }
     }
 
-    private static func post(_ size: CGSize) {
-        NotificationCenter.default.post(
-            name: .menuBarWindowIdealSizeChanged,
-            object: nil,
-            userInfo: ["size": size]
-        )
+    /// Fixed-size content (no live video).
+    func idealWindowSize(_ size: CGSize) -> some View {
+        windowLayout(WindowLayout(idealSize: size, videoAspect: nil, chromeHeight: 0))
     }
+}
+
+private func postWindowLayout(_ layout: WindowLayout) {
+    NotificationCenter.default.post(
+        name: .menuBarWindowIdealSizeChanged,
+        object: nil,
+        userInfo: ["layout": layout]
+    )
 }

@@ -28,22 +28,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var outsideClickMonitor: Any?
     private var stateObservation: AnyCancellable?
 
-    /// What the visible content would like the panel to be (reported by the views).
-    private var idealSize = CGSize(width: 340, height: 520)
+    /// Layout reported by the visible content: its ideal size and, for live
+    /// video, the video's aspect ratio plus the height of everything else.
+    private var layout = WindowLayout(idealSize: CGSize(width: 400, height: 620), videoAspect: nil, chromeHeight: 0)
 
-    /// Extra size the user added (or removed) by dragging the panel's edges.
-    private var userSizeOffset: CGSize {
-        get {
-            CGSize(
-                width: UserDefaults.standard.double(forKey: "panelWidthOffset"),
-                height: UserDefaults.standard.double(forKey: "panelHeightOffset")
-            )
-        }
-        set {
-            UserDefaults.standard.set(Double(newValue.width), forKey: "panelWidthOffset")
-            UserDefaults.standard.set(Double(newValue.height), forKey: "panelHeightOffset")
-        }
-    }
+    /// Width the user chose by dragging (this session only, so every launch
+    /// starts at the default size that fits the video exactly).
+    private var userWidth: CGFloat?
+
+    private let cornerRadius: CGFloat = 14
 
     private let panelMinSize = NSSize(width: 300, height: 320)
 
@@ -68,9 +61,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             MainActor.assumeIsolated { self?.autoHidePanel() }
         }
         center.addObserver(forName: .menuBarWindowIdealSizeChanged, object: nil, queue: .main) { [weak self] note in
-            guard let size = note.userInfo?["size"] as? CGSize else { return }
+            guard let layout = note.userInfo?["layout"] as? WindowLayout else { return }
             MainActor.assumeIsolated {
-                self?.idealSize = size
+                self?.layout = layout
                 self?.applyPanelSize(animated: true)
             }
         }
@@ -141,7 +134,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         panel.setFrame(anchoredFrame(size: targetPanelSize()), display: false)
         NSApp.activate(ignoringOtherApps: true)
         panel.makeKeyAndOrderFront(nil)
-        panel.invalidateShadow()
+        refreshShadow()
         startOutsideClickMonitor()
 
         if appState.menuBarState == .hasNewEvent {
@@ -164,15 +157,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     private func makePanel() -> NSPanel {
         let panel = MenuBarPanel(
-            contentRect: NSRect(origin: .zero, size: idealSize),
+            contentRect: NSRect(origin: .zero, size: layout.idealSize),
             styleMask: [.borderless, .resizable, .nonactivatingPanel],
             backing: .buffered,
             defer: false
         )
+        // Round the window itself (not just the SwiftUI content) so the corners
+        // and the window shadow are rounded on every edge.
+        let container = NSView(frame: NSRect(origin: .zero, size: layout.idealSize))
+        container.wantsLayer = true
+        container.layer?.cornerRadius = cornerRadius
+        container.layer?.cornerCurve = .continuous
+        container.layer?.masksToBounds = true
+        container.layer?.borderWidth = 1
+        container.layer?.borderColor = NSColor.white.withAlphaComponent(0.12).cgColor
+        container.layer?.backgroundColor = NSColor.black.cgColor
+
         // Content is kept between shows so typed text, the drawer, etc. survive
-        panel.contentView = NSHostingView(
-            rootView: MainPopoverView().environmentObject(appState)
-        )
+        let hosting = NSHostingView(rootView: MainPopoverView().environmentObject(appState))
+        hosting.frame = container.bounds
+        hosting.autoresizingMask = [.width, .height]
+        container.addSubview(hosting)
+        panel.contentView = container
         panel.isOpaque = false
         panel.backgroundColor = .clear
         panel.hasShadow = true
@@ -186,13 +192,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         return panel
     }
 
-    /// The content's ideal size plus whatever the user added by dragging.
+    /// For live video: a size whose video area matches the video's aspect
+    /// ratio exactly (no black bars), at the user's width if they resized.
+    /// Otherwise the content's ideal size.
     private func targetPanelSize() -> NSSize {
-        let offset = userSizeOffset
-        return NSSize(
-            width: max(panelMinSize.width, idealSize.width + offset.width),
-            height: max(panelMinSize.height, idealSize.height + offset.height)
-        )
+        guard let aspect = layout.videoAspect else { return layout.idealSize }
+        return fittedSize(width: userWidth ?? layout.idealSize.width, aspect: aspect)
+    }
+
+    /// Size for a given width that keeps the video's aspect ratio, limited to the screen.
+    private func fittedSize(width: CGFloat, aspect: CGFloat) -> NSSize {
+        let chrome = layout.chromeHeight
+        var width = max(panelMinSize.width, width)
+        if let visible = (statusItem.button?.window?.screen ?? NSScreen.main)?.visibleFrame {
+            let maxHeight = visible.height - 16
+            if width / aspect + chrome > maxHeight {
+                width = max(panelMinSize.width, (maxHeight - chrome) * aspect)
+            }
+            width = min(width, visible.width - 16)
+        }
+        return NSSize(width: width.rounded(), height: (width / aspect + chrome).rounded())
+    }
+
+    private func refreshShadow() {
+        DispatchQueue.main.async { [weak self] in self?.panel?.invalidateShadow() }
     }
 
     /// A frame of the given size, horizontally centred on the menu bar icon
@@ -225,10 +248,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 context.duration = 0.3
                 context.timingFunction = CAMediaTimingFunction(name: .easeOut)
                 panel.animator().setFrame(frame, display: true)
+            } completionHandler: { [weak self] in
+                MainActor.assumeIsolated { self?.refreshShadow() }
             }
         } else {
             panel.setFrame(frame, display: true)
+            refreshShadow()
         }
+    }
+
+    // While dragging an edge, keep the video's aspect ratio so it never gets black bars
+    func windowWillResize(_ sender: NSWindow, to frameSize: NSSize) -> NSSize {
+        guard sender === panel, let aspect = layout.videoAspect else { return frameSize }
+        let current = sender.frame.size
+        let heightDriven = abs(frameSize.height - current.height) > abs(frameSize.width - current.width)
+        let width = heightDriven ? (frameSize.height - layout.chromeHeight) * aspect : frameSize.width
+        return fittedSize(width: width, aspect: aspect)
     }
 
     // Keep the panel centred under the menu bar icon while the user drags an edge
@@ -242,11 +277,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     func windowDidEndLiveResize(_ notification: Notification) {
         guard let panel, notification.object as? NSPanel === panel else { return }
-        userSizeOffset = CGSize(
-            width: panel.frame.width - idealSize.width,
-            height: panel.frame.height - idealSize.height
-        )
-        panel.invalidateShadow()
+        if layout.videoAspect != nil {
+            userWidth = panel.frame.width
+        }
+        refreshShadow()
     }
 
     private func startOutsideClickMonitor() {
@@ -331,10 +365,9 @@ struct MainPopoverView: View {
                     .tint(.white)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .background(Color.black)
-                    .idealWindowSize(CGSize(width: 340, height: 320))
+                    .idealWindowSize(CGSize(width: 400, height: 320))
             }
         }
-        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
 }
 
