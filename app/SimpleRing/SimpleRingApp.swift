@@ -65,7 +65,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             MainActor.assumeIsolated { self?.showSettings() }
         }
         center.addObserver(forName: NSApplication.didResignActiveNotification, object: nil, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.hidePanel() }
+            MainActor.assumeIsolated { self?.autoHidePanel() }
         }
         center.addObserver(forName: .menuBarWindowIdealSizeChanged, object: nil, queue: .main) { [weak self] note in
             guard let size = note.userInfo?["size"] as? CGSize else { return }
@@ -136,12 +136,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private func showPanel() {
         let panel = self.panel ?? makePanel()
         self.panel = panel
-
-        // Fresh content each time so onAppear/onDisappear start and stop the
-        // live streams, just like a popover.
-        panel.contentView = NSHostingView(
-            rootView: MainPopoverView().environmentObject(appState)
-        )
+        appState.isPanelVisible = true
 
         panel.setFrame(anchoredFrame(size: targetPanelSize()), display: false)
         NSApp.activate(ignoringOtherApps: true)
@@ -156,9 +151,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     private func hidePanel() {
         stopOutsideClickMonitor()
-        guard let panel else { return }
-        panel.orderOut(nil)
-        panel.contentView = NSView()  // stops the streams via onDisappear
+        panel?.orderOut(nil)
+        appState.isPanelVisible = false  // stops the live streams
+    }
+
+    /// Hide on click-away / app switch — but not on the sign-in screen, so you
+    /// can switch to your password manager without losing the window.
+    private func autoHidePanel() {
+        guard appState.authState == .authenticated else { return }
+        hidePanel()
     }
 
     private func makePanel() -> NSPanel {
@@ -167,6 +168,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             styleMask: [.borderless, .resizable, .nonactivatingPanel],
             backing: .buffered,
             defer: false
+        )
+        // Content is kept between shows so typed text, the drawer, etc. survive
+        panel.contentView = NSHostingView(
+            rootView: MainPopoverView().environmentObject(appState)
         )
         panel.isOpaque = false
         panel.backgroundColor = .clear
@@ -255,7 +260,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                    buttonWindow.frame.contains(NSEvent.mouseLocation) {
                     return
                 }
-                self.hidePanel()
+                self.autoHidePanel()
             }
         }
     }
@@ -312,7 +317,8 @@ struct MainPopoverView: View {
                 PopoverView(
                     devices: appState.devices,
                     events: appState.events,
-                    selectedDevice: $appState.selectedDevice
+                    selectedDevice: $appState.selectedDevice,
+                    isVisible: appState.isPanelVisible
                 )
             case .unauthenticated, .expired:
                 LoginView {
@@ -351,6 +357,8 @@ final class AppState: ObservableObject {
 
     @Published var authState: AuthViewState = .loading
     @Published var menuBarState: MenuBarState = .normal
+    /// Streams only run while the panel is on screen
+    @Published var isPanelVisible = false
     @Published var selectedDevice: RingDevice?
     @Published var devices: [RingDevice] = []
     @Published var events: [RingEvent] = []

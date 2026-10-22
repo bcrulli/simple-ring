@@ -59,6 +59,10 @@ public struct MultiStreamVideoView: View {
         streamManager.getError(for: device.id)
     }
 
+    private var controlsVisible: Bool {
+        isHovering || isTalking || videoTrack == nil
+    }
+
     public var body: some View {
         ZStack {
             // Video background
@@ -95,8 +99,7 @@ public struct MultiStreamVideoView: View {
             // Zoom indicator (when zoomed in, auto-hide with overlay)
             if zoomScale > 1.0 {
                 zoomIndicator
-                    .opacity(isHovering ? 1 : 0)
-                    .animation(.easeInOut(duration: 0.2), value: isHovering)
+                    .opacity(controlsVisible ? 1 : 0)
             }
 
             // Overlay controls (auto-hide when not hovering)
@@ -118,16 +121,15 @@ public struct MultiStreamVideoView: View {
                     bottomControls
                 }
             }
-            .opacity(isHovering || videoTrack == nil ? 1 : 0)
-            .animation(.easeInOut(duration: 0.2), value: isHovering)
+            .opacity(controlsVisible ? 1 : 0)
 
             // Camera switching arrows (auto-hide when not hovering)
             if devices.count > 1 {
                 cameraSwitchingOverlay
-                    .opacity(isHovering ? 1 : 0)
-                    .animation(.easeInOut(duration: 0.2), value: isHovering)
+                    .opacity(controlsVisible ? 1 : 0)
             }
         }
+        .animation(.easeInOut(duration: 0.2), value: controlsVisible)
         .onHover { hovering in
             isHovering = hovering
         }
@@ -208,46 +210,20 @@ public struct MultiStreamVideoView: View {
 
     private var cameraSwitchingOverlay: some View {
         HStack {
-            // Left arrow
             if canGoBack {
-                arrowButton(direction: .left)
-            } else {
-                Color.clear.frame(width: 44, height: 44)
+                glassButton("chevron.left", size: 34, help: "Previous camera") {
+                    switchToDevice(at: currentIndex - 1)
+                }
             }
-
             Spacer()
                 .allowsHitTesting(false)
-
-            // Right arrow
             if canGoForward {
-                arrowButton(direction: .right)
-            } else {
-                Color.clear.frame(width: 44, height: 44)
+                glassButton("chevron.right", size: 34, help: "Next camera") {
+                    switchToDevice(at: currentIndex + 1)
+                }
             }
         }
-        .frame(maxWidth: .infinity)
         .padding(.horizontal, Spacing.md)
-    }
-
-    private enum ArrowDirection { case left, right }
-
-    private func arrowButton(direction: ArrowDirection) -> some View {
-        Button {
-            let targetIndex = direction == .left ? currentIndex - 1 : currentIndex + 1
-            switchToDevice(at: targetIndex)
-        } label: {
-            ZStack {
-                Circle()
-                    .fill(.black.opacity(0.6))
-                    .frame(width: 44, height: 44)
-
-                Image(systemName: direction == .left ? "chevron.left" : "chevron.right")
-                    .font(.system(size: 18, weight: .bold))
-                    .foregroundStyle(.white)
-            }
-        }
-        .buttonStyle(.plain)
-        .contentShape(Circle())
     }
 
     // MARK: - Camera Indicator Dots
@@ -424,122 +400,76 @@ public struct MultiStreamVideoView: View {
     private var connectionPlaceholder: some View {
         VStack(spacing: Spacing.md) {
             switch connectionState {
-            case .idle, .connecting:
+            case .failed, .disconnected:
+                Image(systemName: connectionState.isFailed ? "wifi.exclamationmark" : "video.slash")
+                    .font(.system(size: 26, weight: .medium))
+                    .foregroundStyle(.white.opacity(0.6))
+                Text(connectionState.isFailed ? "Couldn't connect to \(device.name)" : "Disconnected")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(.white.opacity(0.85))
+                if let errorMessage, connectionState.isFailed {
+                    Text(errorMessage)
+                        .font(.system(size: 11))
+                        .foregroundStyle(.white.opacity(0.5))
+                        .multilineTextAlignment(.center)
+                        .lineLimit(2)
+                }
+                Button("Retry") {
+                    Task { await streamManager.restartStream(for: device) }
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
+                .padding(.top, Spacing.xs)
+            default:
                 ProgressView()
-                    .scaleEffect(1.5)
+                    .controlSize(.regular)
                     .tint(.white)
-                Text("Connecting...")
-                    .font(.Ring.body)
-                    .foregroundStyle(.white.opacity(0.7))
-
-            case .creatingOffer, .negotiating:
-                ProgressView()
-                    .scaleEffect(1.5)
-                    .tint(.white)
-                Text("Establishing stream...")
-                    .font(.Ring.body)
-                    .foregroundStyle(.white.opacity(0.7))
-
-            case .connected:
-                ProgressView()
-                    .scaleEffect(1.5)
-                    .tint(.white)
-                Text("Loading video...")
-                    .font(.Ring.body)
-                    .foregroundStyle(.white.opacity(0.7))
-
-            case .failed:
-                Image(systemName: "exclamationmark.triangle.fill")
-                    .font(.system(size: 40))
-                    .foregroundStyle(.yellow)
-
-                Text(errorMessage ?? "Connection failed")
-                    .font(.Ring.body)
-                    .foregroundStyle(.white.opacity(0.7))
-                    .multilineTextAlignment(.center)
-
-            case .disconnected:
-                Image(systemName: "video.slash")
-                    .font(.system(size: 40))
-                    .foregroundStyle(.white.opacity(0.5))
-
-                Text("Disconnected")
-                    .font(.Ring.body)
+                Text("Connecting to \(device.name)…")
+                    .font(.system(size: 13, weight: .medium))
                     .foregroundStyle(.white.opacity(0.7))
             }
         }
-        .padding()
+        .padding(Spacing.xl)
     }
 
     // MARK: - Top Bar
 
     private var topBar: some View {
-        HStack {
-            // Live badge
-            if case .connected = connectionState, videoTrack != nil {
+        HStack(spacing: Spacing.sm) {
+            if videoTrack != nil {
                 LiveBadge()
-            } else if streamManager.isConnecting {
-                // Show connecting badge
-                HStack(spacing: 4) {
-                    ProgressView()
-                        .scaleEffect(0.6)
-                        .tint(.white)
-                    Text("CONNECTING")
-                        .font(.system(size: 10, weight: .bold))
-                        .foregroundStyle(.white)
-                }
-                .padding(.horizontal, 8)
-                .padding(.vertical, 4)
-                .background(Color.orange.opacity(0.8))
-                .clipShape(Capsule())
             }
 
-            HStack(spacing: 6) {
-                Text(device.name)
-                    .font(.Ring.headline)
-                    .foregroundStyle(.white)
+            Text(device.name)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(.white)
+                .lineLimit(1)
 
-                // Battery indicator (only for wireless devices)
-                if showBatteryIndicator, let battery = device.batteryLevel {
-                    HStack(spacing: 3) {
-                        Image(systemName: batteryIcon(for: battery))
-                            .font(.system(size: 12))
-                        Text("\(battery)%")
-                            .font(.system(size: 11, weight: .medium))
-                    }
-                    .foregroundStyle(batteryColor(for: battery))
+            if showBatteryIndicator, let battery = device.batteryLevel {
+                HStack(spacing: 3) {
+                    Image(systemName: batteryIcon(for: battery))
+                    Text("\(battery)%")
                 }
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(battery < 20 ? Color.Ring.error : .white.opacity(0.75))
             }
 
-            Spacer()
+            Spacer(minLength: Spacing.sm)
 
-            // Device control buttons
             deviceControlButtons
 
-            // Close button
-            Button {
+            glassButton("xmark", size: 28, help: "Close") {
                 onClose()
-            } label: {
-                Image(systemName: "xmark")
-                    .font(.system(size: 14, weight: .bold))
-                    .foregroundStyle(.white)
-                    .frame(width: 28, height: 28)
-                    .background(.black.opacity(0.5))
-                    .clipShape(Circle())
             }
-            .buttonStyle(.plain)
         }
-        .padding(Spacing.md)
+        .shadow(color: .black.opacity(0.4), radius: 4)
+        .padding(.horizontal, Spacing.md)
+        .padding(.top, Spacing.md)
+        .padding(.bottom, Spacing.xl)
         .background(
-            LinearGradient(
-                colors: [.black.opacity(0.95), .black.opacity(0.6), .clear],
-                startPoint: .top,
-                endPoint: .bottom
-            )
+            LinearGradient(colors: [.black.opacity(0.7), .clear], startPoint: .top, endPoint: .bottom)
         )
     }
-
-    // MARK: - Battery Helpers
 
     private func batteryIcon(for level: Int) -> String {
         switch level {
@@ -551,50 +481,27 @@ public struct MultiStreamVideoView: View {
         }
     }
 
-    private func batteryColor(for level: Int) -> Color {
-        switch level {
-        case 0..<20: return .red
-        case 20..<50: return .orange
-        default: return .green
-        }
-    }
-
     // MARK: - Device Control Buttons
 
     private var deviceControlButtons: some View {
-        HStack(spacing: 8) {
-            // Floodlight button (only for devices with lights)
+        HStack(spacing: Spacing.sm) {
             if device.hasFloodlight {
-                Button {
-                    toggleFloodlight()
-                } label: {
-                    Image(systemName: isFloodlightOn ? "lightbulb.fill" : "lightbulb")
-                        .font(.system(size: 14))
-                        .foregroundStyle(isFloodlightOn ? .yellow : .white)
-                        .frame(width: 28, height: 28)
-                        .background(isFloodlightOn ? Color.yellow.opacity(0.3) : .black.opacity(0.5))
-                        .clipShape(Circle())
-                }
-                .buttonStyle(.plain)
+                glassButton(
+                    isFloodlightOn ? "lightbulb.fill" : "lightbulb",
+                    size: 28,
+                    activeColor: isFloodlightOn ? .yellow : nil,
+                    help: isFloodlightOn ? "Turn off light" : "Turn on light"
+                ) { toggleFloodlight() }
                 .disabled(isControlLoading)
-                .help(isFloodlightOn ? "Turn off light" : "Turn on light")
             }
-
-            // Siren button (only for devices with sirens)
             if device.hasSiren {
-                Button {
-                    toggleSiren()
-                } label: {
-                    Image(systemName: isSirenActive ? "speaker.wave.3.fill" : "speaker.wave.2")
-                        .font(.system(size: 14))
-                        .foregroundStyle(isSirenActive ? .red : .white)
-                        .frame(width: 28, height: 28)
-                        .background(isSirenActive ? Color.red.opacity(0.3) : .black.opacity(0.5))
-                        .clipShape(Circle())
-                }
-                .buttonStyle(.plain)
+                glassButton(
+                    isSirenActive ? "light.beacon.max.fill" : "light.beacon.max",
+                    size: 28,
+                    activeColor: isSirenActive ? Color.Ring.error : nil,
+                    help: isSirenActive ? "Stop siren" : "Sound siren"
+                ) { toggleSiren() }
                 .disabled(isControlLoading)
-                .help(isSirenActive ? "Stop siren" : "Activate siren")
             }
         }
     }
@@ -644,54 +551,55 @@ public struct MultiStreamVideoView: View {
             pushToTalkButton
 
             HStack {
-                // Mute incoming audio
-                circleButton(
-                    systemName: streamManager.isMuted ? "speaker.slash.fill" : "speaker.wave.2.fill",
-                    size: 40,
-                    tint: streamManager.isMuted ? .white.opacity(0.6) : .white,
-                    background: streamManager.isMuted ? Color.Ring.error.opacity(0.7) : .black.opacity(0.5)
+                glassButton(
+                    streamManager.isMuted ? "speaker.slash.fill" : "speaker.wave.2.fill",
+                    size: 36,
+                    activeColor: streamManager.isMuted ? Color.Ring.error : nil,
+                    help: streamManager.isMuted ? "Unmute" : "Mute"
                 ) {
                     streamManager.setMuted(!streamManager.isMuted)
                 }
-                .help(streamManager.isMuted ? "Unmute" : "Mute")
 
                 Spacer()
 
-                // Zoom
                 HStack(spacing: Spacing.sm) {
-                    circleButton(systemName: "minus.magnifyingglass", size: 34,
-                                 tint: zoomScale > minZoom ? .white : .white.opacity(0.3)) { zoomOut() }
+                    glassButton("minus.magnifyingglass", size: 32, help: "Zoom out") { zoomOut() }
                         .disabled(zoomScale <= minZoom)
-                    circleButton(systemName: "plus.magnifyingglass", size: 34,
-                                 tint: zoomScale < maxZoom ? .white : .white.opacity(0.3)) { zoomIn() }
+                        .opacity(zoomScale > minZoom ? 1 : 0.4)
+                    glassButton("plus.magnifyingglass", size: 32, help: "Zoom in") { zoomIn() }
                         .disabled(zoomScale >= maxZoom)
+                        .opacity(zoomScale < maxZoom ? 1 : 0.4)
                 }
             }
         }
-        .padding(.horizontal, Spacing.lg)
+        .padding(.horizontal, Spacing.md)
         .padding(.top, Spacing.xl)
         .padding(.bottom, Spacing.md)
         .background(
-            LinearGradient(colors: [.clear, .black.opacity(0.75)], startPoint: .top, endPoint: .bottom)
+            LinearGradient(colors: [.clear, .black.opacity(0.7)], startPoint: .top, endPoint: .bottom)
         )
     }
 
-    private func circleButton(
-        systemName: String,
+    /// Circular frosted-glass button used for every overlay control.
+    private func glassButton(
+        _ systemName: String,
         size: CGFloat,
-        tint: Color = .white,
-        background: Color = .black.opacity(0.5),
+        activeColor: Color? = nil,
+        help: String,
         action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
             Image(systemName: systemName)
-                .font(.system(size: size * 0.4, weight: .medium))
-                .foregroundStyle(tint)
+                .font(.system(size: size * 0.4, weight: .semibold))
+                .foregroundStyle(activeColor ?? .white)
                 .frame(width: size, height: size)
-                .background(background)
-                .clipShape(Circle())
+                .background(Circle().fill((activeColor ?? .black).opacity(activeColor == nil ? 0.3 : 0.25)))
+                .background(.ultraThinMaterial, in: Circle())
+                .environment(\.colorScheme, .dark)
+                .contentShape(Circle())
         }
         .buttonStyle(.plain)
+        .help(help)
     }
 }
 

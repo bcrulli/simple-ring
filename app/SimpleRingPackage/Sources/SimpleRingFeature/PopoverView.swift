@@ -9,6 +9,7 @@ public struct PopoverView: View {
     let devices: [RingDevice]
     let events: [RingEvent]
     @Binding var selectedDevice: RingDevice?
+    let isVisible: Bool
 
     @State private var playingVideoURL: URL?
     @State private var isLoadingVideo = false
@@ -24,11 +25,19 @@ public struct PopoverView: View {
     public init(
         devices: [RingDevice],
         events: [RingEvent],
-        selectedDevice: Binding<RingDevice?>
+        selectedDevice: Binding<RingDevice?>,
+        isVisible: Bool
     ) {
         self.devices = devices
         self.events = events
         self._selectedDevice = selectedDevice
+        self.isVisible = isVisible
+    }
+
+    /// Streams run only while the window is visible; this changes whenever
+    /// either the visibility or the set of cameras changes.
+    private var streamKey: [Int] {
+        isVisible ? videoDevices.map(\.id) : []
     }
 
     private var drawerExpandedHeight: CGFloat {
@@ -102,11 +111,15 @@ public struct PopoverView: View {
         }
         .frame(minWidth: 300, maxWidth: .infinity, minHeight: 320, maxHeight: .infinity)
         .idealWindowSize(idealSize)
-        // Restarts whenever the device list changes — on launch the view can
-        // appear before devices have loaded.
-        .task(id: videoDevices.map(\.id)) {
-            guard !videoDevices.isEmpty else { return }
+        // (Re)starts streams when the window opens or the cameras change (on
+        // launch the view can appear before devices load); stops them on hide.
+        .task(id: streamKey) {
+            await streamManager.stopAllStreams()
+            guard isVisible, !videoDevices.isEmpty else { return }
             await streamManager.startAllStreams(for: videoDevices)
+        }
+        .onChange(of: isVisible) { _, visible in
+            if !visible { playingVideoURL = nil }  // stop any recording playback
         }
         .onDisappear {
             Task { await streamManager.stopAllStreams() }
@@ -149,7 +162,7 @@ public struct PopoverView: View {
 
 #if DEBUG
 #Preview("Popover") {
-    PopoverView(devices: [], events: [], selectedDevice: .constant(nil))
+    PopoverView(devices: [], events: [], selectedDevice: .constant(nil), isVisible: true)
         .preferredColorScheme(.dark)
 }
 #endif

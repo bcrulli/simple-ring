@@ -43,6 +43,7 @@ public actor LiveViewSession {
     private var peerConnection: RTCPeerConnection?
     private var videoTrack: RTCVideoTrack?
     private var localAudioTrack: RTCAudioTrack?
+    private var audioSender: RTCRtpSender?
     private var peerConnectionDelegate: PeerConnectionDelegate?
 
     // Push-to-talk state
@@ -149,6 +150,7 @@ public actor LiveViewSession {
 
         videoTrack = nil
         localAudioTrack = nil
+        audioSender = nil
         isTalking = false
 
         state = .disconnected
@@ -163,13 +165,15 @@ public actor LiveViewSession {
             NSLog("🎤 PTT: Cannot start talking - not connected")
             return
         }
-        localAudioTrack?.isEnabled = true
+        // Attaching the track is what opens the microphone
+        audioSender?.track = localAudioTrack
         isTalking = true
     }
 
     /// Stop talking - disables microphone
     public func stopTalking() {
-        localAudioTrack?.isEnabled = false
+        // Detaching it releases the microphone (and the menu bar mic indicator)
+        audioSender?.track = nil
         isTalking = false
     }
 
@@ -323,16 +327,16 @@ public actor LiveViewSession {
         let audioConstraints = RTCMediaConstraints(mandatoryConstraints: nil, optionalConstraints: nil)
         let audioSource = factory.audioSource(with: audioConstraints)
         localAudioTrack = factory.audioTrack(with: audioSource, trackId: "audio0")
-        localAudioTrack?.isEnabled = false  // Start muted, enable when push-to-talk is pressed
 
         // Add transceivers with both send and receive for two-way audio
         let audioTransceiverInit = RTCRtpTransceiverInit()
         audioTransceiverInit.direction = .sendRecv
         audioTransceiverInit.streamIds = ["stream0"]
         let audioTransceiver = pc.addTransceiver(of: .audio, init: audioTransceiverInit)
-        if let sender = audioTransceiver?.sender {
-            sender.track = localAudioTrack
-        }
+        // No track attached until push-to-talk: WebRTC opens the microphone
+        // whenever a track is attached, even a disabled one.
+        audioSender = audioTransceiver?.sender
+        audioSender?.track = nil
 
         // Set up video transceiver for receiving only
         let videoTransceiverInit = RTCRtpTransceiverInit()

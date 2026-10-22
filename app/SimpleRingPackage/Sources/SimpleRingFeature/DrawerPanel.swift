@@ -1,7 +1,7 @@
 import SwiftUI
 
 // MARK: - Drawer Panel
-// A collapsible drawer with a 3x3 grid handle and curved bottom edges
+// A collapsible drawer with a grabber handle
 
 public enum DrawerMetrics {
     public static let handleHeight: CGFloat = 20
@@ -38,10 +38,7 @@ public struct DrawerPanel<Content: View>: View {
             }
         }
         .frame(height: isExpanded ? expandedHeight : handleHeight)
-        .background(
-            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                .fill(Color.black.opacity(0.3))
-        )
+        .background(Color(white: 0.07))
         .clipShape(
             UnevenRoundedRectangle(
                 topLeadingRadius: cornerRadius,
@@ -54,25 +51,14 @@ public struct DrawerPanel<Content: View>: View {
         .animation(.spring(response: 0.35, dampingFraction: 0.8), value: isExpanded)
     }
 
-    // MARK: - Handle Area with 3x3 Grid
+    // MARK: - Handle Area
 
     private var handleArea: some View {
-        VStack(spacing: 0) {
-            // 3x3 dot grid - compact
-            VStack(spacing: 2) {
-                ForEach(0..<3, id: \.self) { row in
-                    HStack(spacing: 2) {
-                        ForEach(0..<3, id: \.self) { col in
-                            Circle()
-                                .fill(.white.opacity(0.5))
-                                .frame(width: 3, height: 3)
-                        }
-                    }
-                }
-            }
-            .padding(.vertical, 4)
-        }
-        .frame(height: handleHeight)
+        Capsule()
+            .fill(.white.opacity(0.3))
+            .frame(width: 36, height: 4)
+            .frame(maxWidth: .infinity)
+            .frame(height: handleHeight)
         .frame(maxWidth: .infinity)
         .contentShape(Rectangle())
         .onTapGesture {

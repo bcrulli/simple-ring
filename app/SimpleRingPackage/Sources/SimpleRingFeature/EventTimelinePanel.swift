@@ -51,7 +51,7 @@ public struct EventTimelinePanel: View {
         }
         .padding(.horizontal, Spacing.md)
         .padding(.vertical, Spacing.sm)
-        .background(Color.black)
+        .background(Color.clear)
     }
 
     // MARK: - Video Loading View

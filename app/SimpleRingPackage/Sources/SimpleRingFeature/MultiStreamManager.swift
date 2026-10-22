@@ -51,24 +51,24 @@ public final class MultiStreamManager: ObservableObject {
             streams[id]?.session = session
 
             await session.setCallbacks(
-                onStateChange: { [weak self] state in
+                onStateChange: { [weak self, weak session] state in
                     Task { @MainActor in
-                        guard let self, self.generation == startedIn else { return }
+                        guard let self, let session, self.streams[id]?.session === session else { return }
                         self.streams[id]?.state = state
                         if case .failed(let message) = state {
                             self.streams[id]?.error = message
                         }
                     }
                 },
-                onVideoTrack: { [weak self] track in
+                onVideoTrack: { [weak self, weak session] track in
                     Task { @MainActor in
-                        guard let self, self.generation == startedIn else { return }
+                        guard let self, let session, self.streams[id]?.session === session else { return }
                         self.streams[id]?.videoTrack = track
                     }
                 },
-                onAudioTrack: { [weak self] track in
+                onAudioTrack: { [weak self, weak session] track in
                     Task { @MainActor in
-                        guard let self, self.generation == startedIn else { return }
+                        guard let self, let session, self.streams[id]?.session === session else { return }
                         track.isEnabled = self.activeDeviceId == id && !self.isMuted
                         self.streams[id]?.audioTrack = track
                     }
@@ -77,8 +77,8 @@ public final class MultiStreamManager: ObservableObject {
 
             try await session.start()
 
-            // The window may have closed (or devices changed) while connecting
-            if generation != startedIn {
+            // The window may have closed, or the camera been retried, while connecting
+            if generation != startedIn || streams[id]?.session !== session {
                 await session.stop()
             }
         } catch {
@@ -87,6 +87,14 @@ public final class MultiStreamManager: ObservableObject {
             streams[id]?.state = .failed(error.localizedDescription)
             streams[id]?.error = error.localizedDescription
         }
+    }
+
+    /// Retry a single camera (e.g. after it failed to connect)
+    public func restartStream(for device: RingDevice) async {
+        let oldSession = streams[device.id]?.session
+        streams[device.id] = StreamInfo(state: .connecting)
+        await oldSession?.stop()
+        await startStream(for: device, generation: generation)
     }
 
     /// Stop all streams

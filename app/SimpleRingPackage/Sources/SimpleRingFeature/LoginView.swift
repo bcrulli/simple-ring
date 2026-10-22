@@ -5,7 +5,7 @@ import RingClient
 // MARK: - Login View
 
 public struct LoginView: View {
-    @State private var email = ""
+    @AppStorage("lastLoginEmail") private var email = ""
     @State private var password = ""
     @State private var twoFactorCode = ""
     @State private var isLoading = false
