@@ -1,16 +1,16 @@
-# open-ring
+# simple-ring
 
 **A local-first Ring control room for macOS**
 
 ---
 
-## 0. What open-ring Is
+## 0. What simple-ring Is
 
 A native macOS application that connects directly to your Ring account, ingests events (doorbell presses, motion, packages), caches snapshots/clips locally, and provides:
 
-- **Menubar app** (`open-ring.app`) — primary interface with live video, quick actions, notifications
-- **CLI/TUI** (`open-ring`) — power-user terminal interface for scripting and deep dives
-- **Daemon** (`open-ringd`) — optional background service for automation, plugins, and API access
+- **Menubar app** (`simple-ring.app`) — primary interface with live video, quick actions, notifications
+- **CLI/TUI** (`simple-ring`) — power-user terminal interface for scripting and deep dives
+- **Daemon** (`simple-ringd`) — optional background service for automation, plugins, and API access
 
 Core design: **menubar is the product, CLI is the platform**. Most users interact via menubar. Hackers and automation enthusiasts use the CLI, daemon, and plugin system.
 
@@ -343,7 +343,7 @@ Both modes are first-class citizens. Test every component in both.
 **Text-only** (no thumbnails):
 ```
 ┌────────────────────────────────────────┐
-│ 🔔  open-ring                          │
+│ 🔔  simple-ring                          │
 │ Ring — Front Door                      │
 │ Someone is at the door                 │
 │                            just now    │
@@ -385,7 +385,7 @@ Both modes are first-class citizens. Test every component in both.
                                               ▼
                                   ┌──────────────────────┐
                                   │   CLI / TUI          │
-                                  │   (open-ring)        │
+                                  │   (simple-ring)        │
                                   │                      │
                                   │   • Interactive mode │
                                   │   • Scripting        │
@@ -404,7 +404,7 @@ Both modes are first-class citizens. Test every component in both.
 - Stores auth tokens in macOS Keychain
 - Caches events/snapshots to SQLite
 
-**B. Daemon (`open-ringd`)** — Optional, enables power features
+**B. Daemon (`simple-ringd`)** — Optional, enables power features
 - Exposes documented REST API on `127.0.0.1:8199`
 - WebSocket for real-time event streaming
 - Lua plugin runtime for custom rules/actions
@@ -412,10 +412,10 @@ Both modes are first-class citizens. Test every component in both.
 - Shared cache with menubar app
 - Required for TUI operation
 
-**C. CLI/TUI (`open-ring`)** — Terminal interface
+**C. CLI/TUI (`simple-ring`)** — Terminal interface
 - Talks to daemon's local API
-- Interactive curses-style TUI (`open-ring --tui` or `open-ring tui`)
-- CLI commands for scripting (`open-ring events`, `open-ring snooze 1h`)
+- Interactive curses-style TUI (`simple-ring --tui` or `simple-ring tui`)
+- CLI commands for scripting (`simple-ring events`, `simple-ring snooze 1h`)
 - Export capabilities (CSV, JSON)
 
 ---
@@ -436,14 +436,14 @@ Both modes are first-class citizens. Test every component in both.
 Ring uses a proprietary auth flow (not standard OAuth). The Swift client implements:
 
 ### Login Flow
-1. User runs `open-ring login` (terminal) or clicks "Login" in menubar preferences
+1. User runs `simple-ring login` (terminal) or clicks "Login" in menubar preferences
 2. Prompt: email + password
 3. Ring returns 2FA challenge (SMS or email code)
 4. **Terminal fallback**: If launched from menubar, show "Complete login in terminal"
 5. User enters 2FA code in terminal
 6. Tokens stored in macOS Keychain:
-   - `open-ring.refresh-token`
-   - `open-ring.hardware-id` (device fingerprint)
+   - `simple-ring.refresh-token`
+   - `simple-ring.hardware-id` (device fingerprint)
 
 ### Token Refresh
 - Refresh token automatically before expiry
@@ -459,11 +459,11 @@ Ring uses a proprietary auth flow (not standard OAuth). The Swift client impleme
 
 ## 6. Local Storage
 
-**Location**: `~/Library/Application Support/open-ring/`
+**Location**: `~/Library/Application Support/simple-ring/`
 
 ```
-open-ring/
-├── open-ring.db          # SQLite database
+simple-ring/
+├── simple-ring.db          # SQLite database
 ├── snapshots/            # Cached snapshot images
 │   └── 2024-01-15/
 │       └── abc123.jpg
@@ -585,7 +585,7 @@ Clicking menubar icon opens a popover with:
 
 ```
 ┌─────────────────────────────────────────┐
-│  open-ring                    ⚙️  ✕     │
+│  simple-ring                    ⚙️  ✕     │
 ├─────────────────────────────────────────┤
 │  ┌─────────────────────────────────┐    │
 │  │                                 │    │
@@ -639,7 +639,7 @@ Right-click menubar icon:
 ### Notification Content (text-only, no thumbnails)
 ```
 ┌────────────────────────────────────┐
-│ 🔔 open-ring                       │
+│ 🔔 simple-ring                       │
 │ Ring — Front Door                  │
 │ Someone is at the door             │
 │                          2:36 PM   │
@@ -776,61 +776,61 @@ Messages:
 
 ```bash
 # Authentication
-open-ring login                    # Interactive login with 2FA
-open-ring logout                   # Clear stored credentials
-open-ring auth status              # Check auth state
+simple-ring login                    # Interactive login with 2FA
+simple-ring logout                   # Clear stored credentials
+simple-ring auth status              # Check auth state
 
 # Devices
-open-ring devices                  # List all devices
-open-ring devices show <id>        # Device details
+simple-ring devices                  # List all devices
+simple-ring devices show <id>        # Device details
 
 # Events
-open-ring events                   # Recent events (default: 24h)
-open-ring events --since 7d        # Last 7 days
-open-ring events --device "Front Door"
-open-ring events --kind ring       # Only ring events
+simple-ring events                   # Recent events (default: 24h)
+simple-ring events --since 7d        # Last 7 days
+simple-ring events --device "Front Door"
+simple-ring events --kind ring       # Only ring events
 
 # Live View
-open-ring live                     # Live view of default device
-open-ring live "Front Door"        # Specific device
-open-ring live --mpv               # Force mpv player
+simple-ring live                     # Live view of default device
+simple-ring live "Front Door"        # Specific device
+simple-ring live --mpv               # Force mpv player
 
 # Clips & Snapshots
-open-ring clips                    # List recent clips
-open-ring clips download <id>      # Download a clip
-open-ring snapshot <device>        # Capture current snapshot
+simple-ring clips                    # List recent clips
+simple-ring clips download <id>      # Download a clip
+simple-ring snapshot <device>        # Capture current snapshot
 
 # Notifications
-open-ring snooze 1h                # Snooze for 1 hour
-open-ring snooze --until 07:00     # Snooze until time
-open-ring snooze cancel            # Cancel snooze
+simple-ring snooze 1h                # Snooze for 1 hour
+simple-ring snooze --until 07:00     # Snooze until time
+simple-ring snooze cancel            # Cancel snooze
 
 # Export
-open-ring export events --format csv --output events.csv
-open-ring export clips --since 7d --output clips/
+simple-ring export events --format csv --output events.csv
+simple-ring export clips --since 7d --output clips/
 
 # Rules & Webhooks
-open-ring rules list
-open-ring rules add --name "Late night ring" --file rule.lua
-open-ring rules test <id>
-open-ring webhooks list
-open-ring webhooks add --url https://example.com/hook --events ring,motion
+simple-ring rules list
+simple-ring rules add --name "Late night ring" --file rule.lua
+simple-ring rules test <id>
+simple-ring webhooks list
+simple-ring webhooks add --url https://example.com/hook --events ring,motion
 
 # Daemon
-open-ring daemon start             # Start daemon in background
-open-ring daemon stop              # Stop daemon
-open-ring daemon status            # Check daemon status
+simple-ring daemon start             # Start daemon in background
+simple-ring daemon stop              # Stop daemon
+simple-ring daemon status            # Check daemon status
 
 # Interactive TUI
-open-ring tui                      # Launch interactive TUI
-open-ring --tui                    # Alias
+simple-ring tui                      # Launch interactive TUI
+simple-ring --tui                    # Alias
 ```
 
 ### Interactive TUI
 
 ```
 ╔══════════════════════════════════════════════════════════════════╗
-║ open-ring                                        snooze: OFF     ║
+║ simple-ring                                        snooze: OFF     ║
 ╠══════════════════════════════════════════════════════════════════╣
 ║ [1] Devices  [2] Events  [3] Live  [4] Clips  [5] Rules  [?] Help║
 ╚══════════════════════════════════════════════════════════════════╝
@@ -886,7 +886,7 @@ Events trigger HTTP POST to configured URLs.
 
 ### Configuration
 ```bash
-open-ring webhooks add \
+simple-ring webhooks add \
   --name "Home Assistant" \
   --url http://homeassistant.local:8123/api/webhook/ring \
   --events ring,motion,package \
@@ -904,7 +904,7 @@ open-ring webhooks add \
 Plugins enable custom automation rules.
 
 ### Plugin Location
-`~/Library/Application Support/open-ring/plugins/`
+`~/Library/Application Support/simple-ring/plugins/`
 
 ### Plugin Structure
 ```lua
@@ -970,32 +970,32 @@ context.http_post(url, body, headers)               -- HTTP request (async)
 
 ### Homebrew Cask
 ```ruby
-cask "open-ring" do
+cask "simple-ring" do
   version "0.1.0"
   sha256 "..."
 
-  url "https://github.com/user/open-ring/releases/download/v#{version}/open-ring-#{version}.dmg"
-  name "open-ring"
+  url "https://github.com/user/simple-ring/releases/download/v#{version}/simple-ring-#{version}.dmg"
+  name "simple-ring"
   desc "Local-first Ring control room for macOS"
-  homepage "https://github.com/user/open-ring"
+  homepage "https://github.com/user/simple-ring"
 
-  app "open-ring.app"
-  binary "#{appdir}/open-ring.app/Contents/MacOS/open-ring-cli", target: "open-ring"
+  app "simple-ring.app"
+  binary "#{appdir}/simple-ring.app/Contents/MacOS/simple-ring-cli", target: "simple-ring"
 
   zap trash: [
-    "~/Library/Application Support/open-ring",
-    "~/Library/Preferences/com.open-ring.plist",
-    "~/Library/Caches/com.open-ring"
+    "~/Library/Application Support/simple-ring",
+    "~/Library/Preferences/com.simple-ring.plist",
+    "~/Library/Caches/com.simple-ring"
   ]
 end
 ```
 
 ### Installation
 ```bash
-brew install --cask open-ring
+brew install --cask simple-ring
 
 # First run
-open-ring login
+simple-ring login
 ```
 
 ### No Auto-Start
@@ -1006,9 +1006,9 @@ App does not install launch agent by default. User can add to Login Items manual
 ## 14. Project Structure
 
 ```
-open-ring/
+simple-ring/
 ├── app/                          # Swift menubar app (Xcode project)
-│   ├── open-ring/
+│   ├── simple-ring/
 │   │   ├── App.swift
 │   │   ├── MenuBarController.swift
 │   │   ├── PopoverView.swift
@@ -1023,7 +1023,7 @@ open-ring/
 │   │   │   ├── Database.swift
 │   │   │   └── Keychain.swift
 │   │   └── Notifications/
-│   └── open-ring.xcodeproj
+│   └── simple-ring.xcodeproj
 ├── daemon/                       # Optional daemon (Swift or Rust)
 │   ├── src/
 │   │   ├── main.swift
@@ -1047,7 +1047,7 @@ open-ring/
 │   ├── release.sh
 │   └── install-dev.sh
 ├── Casks/
-│   └── open-ring.rb             # Homebrew cask formula
+│   └── simple-ring.rb             # Homebrew cask formula
 ├── LICENSE                       # MIT
 ├── README.md
 └── CHANGELOG.md
@@ -1093,7 +1093,7 @@ open-ring/
 - [ ] Quiet hours respected
 - [ ] Motion alert toggle works
 - [ ] Silent badge on auth expiry (no intrusive alert)
-- [ ] CLI: `open-ring login`, `devices`, `events`, `snooze` work
+- [ ] CLI: `simple-ring login`, `devices`, `events`, `snooze` work
 - [ ] Daemon starts and exposes API
 - [ ] Webhooks fire on events
 - [ ] Basic Lua plugin loads and executes

@@ -1,4 +1,4 @@
-<h1 align="center">OpenRing</h1>
+<h1 align="center">SimpleRing</h1>
 
 <p align="center">
   <strong>An unofficial native macOS menu bar app for Ring doorbells and cameras</strong>
@@ -12,13 +12,13 @@
 
 ---
 
-OpenRing brings your Ring devices to your Mac's menu bar. View live streams, get notifications, talk to visitors, and control your devices—all without opening a browser or phone app.
+SimpleRing brings your Ring devices to your Mac's menu bar. View live streams, get notifications, talk to visitors, and control your devices—all without opening a browser or phone app.
 
 This is a privacy-focused fork: it only talks to Ring's servers (to log in and stream your feed) and nothing else. All AI/Claude/Anthropic integration has been removed.
 
-## Why OpenRing?
+## Why SimpleRing?
 
-Ring's official app is phone-first. There's no native Mac app, just a web dashboard that's clunky and slow. OpenRing fixes that:
+Ring's official app is phone-first. There's no native Mac app, just a web dashboard that's clunky and slow. SimpleRing fixes that:
 
 - **Native performance** — Built with SwiftUI, feels like a first-party Apple app
 - **Menu bar access** — One click (or hotkey) to see your cameras
@@ -84,7 +84,7 @@ Get alerted when something happens.
 
 | Shortcut | Action |
 |----------|--------|
-| **⌘`** | Open OpenRing (global, works from any app) |
+| **⌘`** | Open SimpleRing (global, works from any app) |
 | **⌘1-4** | Switch to camera 1/2/3/4 |
 | **+/-** | Zoom in/out |
 | **←/→** | Previous/next camera |
@@ -108,20 +108,20 @@ The global hotkey is customizable in Settings (⌘⇧R, ⌘⌥O, ⌃⌥Space, et
 
 ### Download (Recommended)
 
-1. Go to [Releases](https://github.com/abracadabra50/open-ring/releases)
-2. Download `OpenRing-x.x.x.dmg`
-3. Open the DMG and drag OpenRing to Applications
+1. Go to [Releases](https://github.com/bcrulli/simple-ring/releases)
+2. Download `SimpleRing-x.x.x.dmg`
+3. Open the DMG and drag SimpleRing to Applications
 4. Launch from Applications (you may need to right-click → Open the first time)
 
 ### Build from Source
 
 ```bash
 # Clone the repository
-git clone https://github.com/abracadabra50/open-ring.git
-cd open-ring/app
+git clone https://github.com/bcrulli/simple-ring.git
+cd simple-ring/app
 
 # Open in Xcode
-open OpenRing.xcworkspace
+open SimpleRing.xcworkspace
 
 # Build and run (⌘R)
 ```
@@ -149,15 +149,15 @@ Your credentials are stored in macOS Keychain. The app maintains a session token
 ## Architecture
 
 ```
-open-ring/
+simple-ring/
 ├── app/
-│   ├── OpenRing/                    # macOS app shell
-│   │   └── OpenRingApp.swift        # App entry, MenuBarExtra, Settings
+│   ├── SimpleRing/                    # macOS app shell
+│   │   └── SimpleRingApp.swift        # App entry, MenuBarExtra, Settings
 │   │
-│   └── OpenRingPackage/             # Swift Package with all modules
+│   └── SimpleRingPackage/             # Swift Package with all modules
 │       │
 │       ├── Sources/
-│       │   ├── OpenRingFeature/     # Main UI and features
+│       │   ├── SimpleRingFeature/     # Main UI and features
 │       │   │   ├── PopoverView.swift
 │       │   │   ├── MultiStreamVideoView.swift
 │       │   │   ├── LoginView.swift
@@ -192,7 +192,7 @@ open-ring/
 - Live streaming via WebRTC
 - Device controls (floodlight, siren, motion detection)
 
-**OpenRingFeature** — All UI and app logic:
+**SimpleRingFeature** — All UI and app logic:
 - SwiftUI views for every screen
 - WebRTC video rendering with Metal
 - Notification handling
@@ -379,9 +379,9 @@ Contributions welcome! Please:
 ### Development Setup
 
 ```bash
-git clone https://github.com/abracadabra50/open-ring.git
-cd open-ring/app
-open OpenRing.xcworkspace
+git clone https://github.com/bcrulli/simple-ring.git
+cd simple-ring/app
+open SimpleRing.xcworkspace
 ```
 
 The project uses Swift Package Manager. Dependencies are resolved automatically.
@@ -390,7 +390,7 @@ The project uses Swift Package Manager. Dependencies are resolved automatically.
 
 ## Disclaimer
 
-**This is an unofficial app.** OpenRing is not affiliated with, endorsed by, or connected to Ring LLC or Amazon.com, Inc. Ring is a trademark of Ring LLC. Use at your own risk.
+**This is an unofficial app.** SimpleRing is not affiliated with, endorsed by, or connected to Ring LLC or Amazon.com, Inc. Ring is a trademark of Ring LLC. Use at your own risk.
 
 This app uses Ring's private API, which is undocumented and may change without notice. Ring could block access at any time.
 

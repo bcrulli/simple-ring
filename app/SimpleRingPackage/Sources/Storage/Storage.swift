@@ -11,12 +11,12 @@ public final class StorageManager: Sendable {
     private init() {
         // Initialize database in Application Support
         let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-        let openRingDir = appSupport.appendingPathComponent("open-ring", isDirectory: true)
+        let simpleRingDir = appSupport.appendingPathComponent("simple-ring", isDirectory: true)
 
         // Create directory if needed
-        try? FileManager.default.createDirectory(at: openRingDir, withIntermediateDirectories: true)
+        try? FileManager.default.createDirectory(at: simpleRingDir, withIntermediateDirectories: true)
 
-        let dbPath = openRingDir.appendingPathComponent("open-ring.db").path
+        let dbPath = simpleRingDir.appendingPathComponent("simple-ring.db").path
 
         do {
             dbQueue = try DatabaseQueue(path: dbPath)

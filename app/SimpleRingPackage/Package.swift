@@ -3,10 +3,10 @@
 import PackageDescription
 
 let package = Package(
-    name: "OpenRingPackage",
+    name: "SimpleRingPackage",
     platforms: [.macOS(.v14)],
     products: [
-        .library(name: "OpenRingFeature", targets: ["OpenRingFeature"]),
+        .library(name: "SimpleRingFeature", targets: ["SimpleRingFeature"]),
         .library(name: "DesignSystem", targets: ["DesignSystem"]),
         .library(name: "RingClient", targets: ["RingClient"]),
         .library(name: "Storage", targets: ["Storage"]),
@@ -41,7 +41,7 @@ let package = Package(
 
         // Main Feature module
         .target(
-            name: "OpenRingFeature",
+            name: "SimpleRingFeature",
             dependencies: [
                 "DesignSystem",
                 "RingClient",
@@ -50,8 +50,8 @@ let package = Package(
         ),
 
         .testTarget(
-            name: "OpenRingFeatureTests",
-            dependencies: ["OpenRingFeature"]
+            name: "SimpleRingFeatureTests",
+            dependencies: ["SimpleRingFeature"]
         ),
     ]
 )

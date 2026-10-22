@@ -6,7 +6,7 @@ import Security
 public actor KeychainManager {
     public static let shared = KeychainManager()
 
-    private let service = "dev.open-ring"
+    private let service = "dev.simple-ring"
 
     private init() {}
 
@@ -83,7 +83,7 @@ public actor KeychainManager {
         }
 
         let accessStatus = SecAccessCreate(
-            "OpenRing Keychain Access" as CFString,
+            "SimpleRing Keychain Access" as CFString,
             trustedApps,
             &access
         )

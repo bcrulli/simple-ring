@@ -1,11 +1,11 @@
 import SwiftUI
-import OpenRingFeature
+import SimpleRingFeature
 import DesignSystem
 import RingClient
 import AppKit
 
 @main
-struct OpenRingApp: App {
+struct SimpleRingApp: App {
     @StateObject private var appState = AppState()
 
     init() {
@@ -38,7 +38,7 @@ struct OpenRingApp: App {
                 NSApp.activate(ignoringOtherApps: true)
 
                 // Try to click the menu bar status item
-                // Find and click the OpenRing menu bar item
+                // Find and click the SimpleRing menu bar item
                 if let button = findMenuBarButton() {
                     button.performClick(nil)
                 }
@@ -57,7 +57,7 @@ struct OpenRingApp: App {
         for item in statusItems {
             if let button = item.button,
                let image = button.image,
-               image.name() == "bell" || image.accessibilityDescription?.contains("OpenRing") == true {
+               image.name() == "bell" || image.accessibilityDescription?.contains("SimpleRing") == true {
                 return button
             }
         }

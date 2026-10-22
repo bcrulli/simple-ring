@@ -67,7 +67,7 @@ public struct LoginView: View {
                             .shadow(color: Color.Ring.accent.opacity(0.5), radius: 10)
                     }
 
-                    Text("Open Ring")
+                    Text("Simple Ring")
                         .font(.system(size: 28, weight: .bold, design: .rounded))
                         .foregroundStyle(.white)
 
@@ -116,7 +116,7 @@ public struct LoginView: View {
                     Spacer()
 
                     // App name (center)
-                    Text("open-ring")
+                    Text("simple-ring")
                         .font(.system(size: 11, weight: .medium, design: .monospaced))
                         .foregroundStyle(.white.opacity(0.3))
 

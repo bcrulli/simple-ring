@@ -10,24 +10,24 @@
   ],
   "defaultOptions" : {
     "targetForVariableExpansion" : {
-      "containerPath" : "container:OpenRing.xcodeproj",
+      "containerPath" : "container:SimpleRing.xcodeproj",
       "identifier" : "8BC2655B2DEDD3F400F279A4",
-      "name" : "OpenRing"
+      "name" : "SimpleRing"
     }
   },
   "testTargets" : [
     {
       "target" : {
-        "containerPath" : "container:OpenRing.xcodeproj",
+        "containerPath" : "container:SimpleRing.xcodeproj",
         "identifier" : "8BC265732DEDD3F500F279A4",
-        "name" : "OpenRingUITests"
+        "name" : "SimpleRingUITests"
       }
     },
     {
       "target" : {
-        "containerPath" : "container:OpenRingPackage",
-        "identifier" : "OpenRingFeatureTests",
-        "name" : "OpenRingFeatureTests"
+        "containerPath" : "container:SimpleRingPackage",
+        "identifier" : "SimpleRingFeatureTests",
+        "name" : "SimpleRingFeatureTests"
       }
     }
   ],

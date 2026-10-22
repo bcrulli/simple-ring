@@ -16,9 +16,9 @@
             <BuildableReference
                BuildableIdentifier = "primary"
                BlueprintIdentifier = "8BC2655B2DEDD3F400F279A4"
-               BuildableName = "OpenRing.app"
-               BlueprintName = "OpenRing"
-               ReferencedContainer = "container:OpenRing.xcodeproj">
+               BuildableName = "SimpleRing.app"
+               BlueprintName = "SimpleRing"
+               ReferencedContainer = "container:SimpleRing.xcodeproj">
             </BuildableReference>
          </BuildActionEntry>
       </BuildActionEntries>
@@ -30,7 +30,7 @@
       shouldUseLaunchSchemeArgsEnv = "YES">
       <TestPlans>
          <TestPlanReference
-            reference = "container:OpenRing/OpenRing.xctestplan"
+            reference = "container:SimpleRing/SimpleRing.xctestplan"
             default = "YES">
          </TestPlanReference>
       </TestPlans>
@@ -41,9 +41,9 @@
             <BuildableReference
                BuildableIdentifier = "primary"
                BlueprintIdentifier = "8BC265732DEDD3F500F279A4"
-               BuildableName = "OpenRing.xctest"
-               BlueprintName = "OpenRingUITests"
-               ReferencedContainer = "container:OpenRing.xcodeproj">
+               BuildableName = "SimpleRing.xctest"
+               BlueprintName = "SimpleRingUITests"
+               ReferencedContainer = "container:SimpleRing.xcodeproj">
             </BuildableReference>
          </TestableReference>
       </Testables>
@@ -63,9 +63,9 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "8BC2655B2DEDD3F400F279A4"
-            BuildableName = "OpenRing.app"
-            BlueprintName = "OpenRing"
-            ReferencedContainer = "container:OpenRing.xcodeproj">
+            BuildableName = "SimpleRing.app"
+            BlueprintName = "SimpleRing"
+            ReferencedContainer = "container:SimpleRing.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
    </LaunchAction>
@@ -80,9 +80,9 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "8BC2655B2DEDD3F400F279A4"
-            BuildableName = "OpenRing.app"
-            BlueprintName = "OpenRing"
-            ReferencedContainer = "container:OpenRing.xcodeproj">
+            BuildableName = "SimpleRing.app"
+            BlueprintName = "SimpleRing"
+            ReferencedContainer = "container:SimpleRing.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
    </ProfileAction>

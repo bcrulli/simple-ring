@@ -1,4 +1,4 @@
-// DesignSystem - open-ring Design Tokens & Components
+// DesignSystem - simple-ring Design Tokens & Components
 //
 // Usage:
 //   import DesignSystem

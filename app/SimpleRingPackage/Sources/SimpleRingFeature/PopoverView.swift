@@ -215,7 +215,7 @@ public struct PopoverView: View {
     private var footerBarView: some View {
             ZStack {
                 // App name (absolutely centered)
-                Text("open-ring")
+                Text("simple-ring")
                     .font(.system(size: 10, weight: .medium, design: .monospaced))
                     .foregroundStyle(.white.opacity(0.3))
 
