@@ -18,7 +18,7 @@ It's a stripped-down fork of [open-ring](https://github.com/abracadabra50/open-r
 ## Features
 
 - **Live video** — WebRTC streams from every camera, with instant switching (swipe, arrows or ⌘1–4)
-- **Sound and talk** — sound is off by default; the speaker and mic buttons toggle instantly, and the microphone is only open while you're talking
+- **Sound and talk** — sound is off by default and toggles instantly; tapping the mic briefly reconnects the camera with two-way audio, and hanging up reconnects it receive-only, so the Mac's microphone (and its menu bar indicator) is only in use while you're talking
 - **Zoom** — scroll, +/−, or the zoom buttons (up to 4×); 0 resets
 - **Device controls** — floodlight and siren, where the device has them
 - **Events** — a day-grouped list with recording playback exists but is hidden for now (`PopoverView.showsEvents`)

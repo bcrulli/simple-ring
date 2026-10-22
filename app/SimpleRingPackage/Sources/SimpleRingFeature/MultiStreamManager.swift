@@ -4,9 +4,10 @@ import RingClient
 
 /// Manages simultaneous WebRTC streams for all cameras.
 ///
-/// Each stream negotiates two-way audio once, so the speaker and mic buttons
-/// act instantly: sound is muted by default and only the viewed camera's sound
-/// plays; the microphone is only attached (and opened) while talking.
+/// Streams receive audio only, so the Mac microphone is never in use while
+/// viewing; the speaker button mutes/unmutes instantly. Talking reconnects the
+/// viewed camera with two-way audio, and hanging up reconnects it receive-only,
+/// so the macOS mic indicator shows exactly while you're talking.
 @MainActor
 public final class MultiStreamManager: ObservableObject {
 
@@ -16,6 +17,8 @@ public final class MultiStreamManager: ObservableObject {
         public var audioTrack: RTCAudioTrack?
         public var state: LiveViewSession.State = .connecting
         public var error: String?
+        /// Whether this camera's session sends your voice (mic in use)
+        public var canTalk = false
         /// Identifies the current connection attempt, so a superseded attempt
         /// (window closed, camera retried) stops itself.
         fileprivate var attempt = UUID()
@@ -28,12 +31,15 @@ public final class MultiStreamManager: ObservableObject {
     /// Width / height of each camera's video, learned from its frames
     @Published public private(set) var videoAspects: [Int: CGFloat] = [:]
 
+    private var devices: [Int: RingDevice] = [:]
+
     public init() {}
 
     // MARK: - Starting and stopping
 
     /// Start streams for all provided devices
     public func startAllStreams(for devices: [RingDevice]) async {
+        self.devices = Dictionary(uniqueKeysWithValues: devices.map { ($0.id, $0) })
         isTalking = false
         streams = Dictionary(uniqueKeysWithValues: devices.map { ($0.id, StreamInfo()) })
         await withTaskGroup(of: Void.self) { group in
@@ -55,20 +61,24 @@ public final class MultiStreamManager: ObservableObject {
         }
     }
 
-    /// Retry a camera after it failed to connect
-    public func restartStream(for device: RingDevice) async {
-        let old = streams[device.id]?.session
-        if device.id == activeDeviceId { isTalking = false }
-        streams[device.id] = StreamInfo()
-        await old?.stop()
+    /// Retry a camera, or reconnect it with or without talking
+    public func restartStream(for device: RingDevice, canTalk: Bool = false) async {
+        let old = streams[device.id]
+        var info = StreamInfo()
+        info.canTalk = canTalk
+        // Keep showing the last frame while reconnecting instead of a placeholder
+        info.videoTrack = old?.videoTrack
+        if old?.videoTrack != nil { info.state = old?.state ?? .connecting }
+        streams[device.id] = info
+        await old?.session?.stop()
         await connect(device)
     }
 
     private func connect(_ device: RingDevice) async {
         let id = device.id
-        guard let attempt = streams[id]?.attempt else { return }
+        guard let attempt = streams[id]?.attempt, let canTalk = streams[id]?.canTalk else { return }
         do {
-            let session = try await RingClient.shared.startLiveView(deviceId: id)
+            let session = try await RingClient.shared.startLiveView(deviceId: id, canTalk: canTalk)
             guard streams[id]?.attempt == attempt else { return }
             streams[id]?.session = session
 
@@ -79,6 +89,7 @@ public final class MultiStreamManager: ObservableObject {
                         self.streams[id]?.state = state
                         if case .failed(let message) = state {
                             self.streams[id]?.error = message
+                            self.streams[id]?.videoTrack = nil  // show the error, not a frozen frame
                         }
                     }
                 },
@@ -108,6 +119,8 @@ public final class MultiStreamManager: ObservableObject {
             ringLog.error("❌ Failed to start stream for \(device.name, privacy: .public): \(error.localizedDescription, privacy: .public)")
             streams[id]?.state = .failed(error.localizedDescription)
             streams[id]?.error = error.localizedDescription
+            streams[id]?.videoTrack = nil  // show the error, not a frozen frame
+            if id == activeDeviceId { isTalking = false }
         }
     }
 
@@ -133,11 +146,12 @@ public final class MultiStreamManager: ObservableObject {
 
     // MARK: - Audio
 
-    /// The camera being viewed: only its sound plays, and switching away stops talking.
+    /// The camera being viewed: only its sound plays. Switching away while
+    /// talking hangs up (reconnects that camera receive-only).
     public func setActiveDevice(_ deviceId: Int) {
         guard activeDeviceId != deviceId else { return }
-        if isTalking, let previous = activeDeviceId, let session = streams[previous]?.session {
-            Task { await session.stopTalking() }
+        if let previous = activeDeviceId, streams[previous]?.canTalk == true, let device = devices[previous] {
+            Task { await restartStream(for: device, canTalk: false) }
         }
         isTalking = false
         activeDeviceId = deviceId
@@ -156,18 +170,13 @@ public final class MultiStreamManager: ObservableObject {
         }
     }
 
-    /// Start or stop talking through the viewed camera (instant, no reconnect).
-    /// The microphone is only open while talking.
+    /// Start talking (reconnects the viewed camera with the microphone) or hang
+    /// up (reconnects it receive-only, which releases the microphone).
     public func toggleTalking() async {
-        guard let id = activeDeviceId, let session = streams[id]?.session else { return }
-        if isTalking {
-            isTalking = false
-            await session.stopTalking()
-        } else {
-            isTalking = true
-            await session.startTalking()
-            // Talking to someone you can't hear isn't useful
-            if !isSoundOn { setSoundOn(true) }
-        }
+        guard let id = activeDeviceId, let device = devices[id] else { return }
+        let talk = !isTalking
+        isTalking = talk
+        if talk && !isSoundOn { setSoundOn(true) }  // hear who you're talking to
+        await restartStream(for: device, canTalk: talk)
     }
 }

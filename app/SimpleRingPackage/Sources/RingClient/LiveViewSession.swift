@@ -84,7 +84,13 @@ public actor LiveViewSession {
 
     // MARK: - Init
 
-    public init(deviceId: Int, accessToken: String, hardwareId: String) {
+    /// Whether this session can send your voice. While a session that sends
+    /// audio is connected, WebRTC keeps the Mac microphone running (even with no
+    /// track attached), so only talk sessions negotiate sending.
+    public let canTalk: Bool
+
+    public init(deviceId: Int, accessToken: String, hardwareId: String, canTalk: Bool) {
+        self.canTalk = canTalk
         self.deviceId = deviceId
         self.accessToken = accessToken
         self.hardwareId = hardwareId
@@ -155,22 +161,6 @@ public actor LiveViewSession {
 
         state = .disconnected
         onStateChange?(.disconnected)
-    }
-
-    // MARK: - Push-to-Talk
-
-    /// Start talking - enables microphone
-    public func startTalking() {
-        // Attaching the track is what opens the microphone
-        audioSender?.track = localAudioTrack
-        isTalking = true
-    }
-
-    /// Stop talking - disables microphone
-    public func stopTalking() {
-        // Detaching it releases the microphone (and the menu bar mic indicator)
-        audioSender?.track = nil
-        isTalking = false
     }
 
     // MARK: - Ring Live View API
@@ -319,18 +309,23 @@ public actor LiveViewSession {
             throw LiveViewError.peerConnectionNotReady
         }
 
-        // Two-way audio, negotiated once so the speaker and mic buttons work
-        // instantly without reconnecting.
+        // Ring only accepts an offer with two-way audio. For sessions that
+        // can't talk, Ring's answer is narrowed to receive-only before it's
+        // applied (see `receiveOnlyAudio(_:)`), so nothing is ever sent and
+        // the microphone is never started.
         let audioTransceiverInit = RTCRtpTransceiverInit()
         audioTransceiverInit.direction = .sendRecv
         audioTransceiverInit.streamIds = ["stream0"]
         let audioTransceiver = pc.addTransceiver(of: .audio, init: audioTransceiverInit)
-        audioSender = audioTransceiver?.sender
-        // No track attached until talking: WebRTC opens the microphone
-        // whenever a track is attached, even a disabled one.
-        audioSender?.track = nil
-        let audioSource = factory.audioSource(with: RTCMediaConstraints(mandatoryConstraints: nil, optionalConstraints: nil))
-        localAudioTrack = factory.audioTrack(with: audioSource, trackId: "audio0")
+        if canTalk {
+            let audioSource = factory.audioSource(with: RTCMediaConstraints(mandatoryConstraints: nil, optionalConstraints: nil))
+            localAudioTrack = factory.audioTrack(with: audioSource, trackId: "audio0")
+            audioSender = audioTransceiver?.sender
+            audioSender?.track = localAudioTrack
+            isTalking = true
+        } else {
+            audioTransceiver?.sender.track = nil
+        }
 
         // Set up video transceiver for receiving only
         let videoTransceiverInit = RTCRtpTransceiverInit()
@@ -411,7 +406,7 @@ public actor LiveViewSession {
             throw LiveViewError.peerConnectionNotReady
         }
 
-        let answer = RTCSessionDescription(type: .answer, sdp: sdp)
+        let answer = RTCSessionDescription(type: .answer, sdp: canTalk ? sdp : Self.receiveOnlyAudio(sdp))
 
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             pc.setRemoteDescription(answer) { error in
@@ -425,6 +420,21 @@ public actor LiveViewSession {
 
         // Check if we already have a video track
         checkForVideoTrack()
+    }
+
+    /// Rewrites the audio direction in Ring's answer to `sendonly` (from Ring's
+    /// side: Ring sends, we only receive), so this side never sends audio.
+    static func receiveOnlyAudio(_ sdp: String) -> String {
+        let directions: Set<String> = ["a=sendrecv", "a=sendonly", "a=recvonly", "a=inactive"]
+        var inAudio = false
+        let lines = sdp.components(separatedBy: "\n").map { rawLine -> String in
+            let hasCR = rawLine.hasSuffix("\r")
+            let line = hasCR ? String(rawLine.dropLast()) : rawLine
+            if line.hasPrefix("m=") { inAudio = line.hasPrefix("m=audio") }
+            guard inAudio, directions.contains(line) else { return rawLine }
+            return hasCR ? "a=sendonly\r" : "a=sendonly"
+        }
+        return lines.joined(separator: "\n")
     }
 
     // MARK: - Track Handling
