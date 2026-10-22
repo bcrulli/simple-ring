@@ -18,7 +18,7 @@ It's a stripped-down fork of [open-ring](https://github.com/abracadabra50/open-r
 ## Features
 
 - **Live video** — WebRTC streams from every camera, with instant switching (swipe, arrows or ⌘1–4)
-- **Audio on demand** — video-only by default, so no audio device (or mic indicator) is used until you turn sound on; tap the mic to talk, tap again to stop
+- **Sound and talk** — sound is off by default; the speaker and mic buttons toggle instantly, and the microphone is only open while you're talking
 - **Zoom** — scroll, +/−, or the zoom buttons (up to 4×); 0 resets
 - **Device controls** — floodlight and siren, where the device has them
 - **Events** — recent rings and motion grouped by day, filterable; click one to play its recording full size and save it as MP4

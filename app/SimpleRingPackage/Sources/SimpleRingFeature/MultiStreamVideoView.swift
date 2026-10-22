@@ -299,39 +299,6 @@ public struct MultiStreamVideoView: View {
             }
     }
 
-    // MARK: - Talk Button
-
-    /// Tap to talk, tap again to stop. The first tap reconnects the camera with
-    /// a microphone; the mic is only open while talking.
-    private var pushToTalkButton: some View {
-        let talking = streamManager.isTalking
-        let reconnecting = streamManager.activeAudioMode == .talk && videoTrack == nil
-        return Button {
-            Task { await streamManager.toggleTalking() }
-        } label: {
-            ZStack {
-                Circle()
-                    .fill(talking ? Color.Ring.error : Color.Ring.accent)
-                    .frame(width: 52, height: 52)
-                    .shadow(color: (talking ? Color.Ring.error : Color.Ring.accent).opacity(0.5), radius: talking ? 12 : 6)
-                if reconnecting {
-                    ProgressView()
-                        .controlSize(.small)
-                        .tint(.white)
-                } else {
-                    Image(systemName: talking ? "mic.fill" : "mic")
-                        .font(.system(size: 19, weight: .semibold))
-                        .foregroundStyle(.white)
-                        .symbolEffect(.pulse, isActive: talking)
-                }
-            }
-            .contentShape(Circle())
-        }
-        .buttonStyle(.plain)
-        .animation(.easeInOut(duration: 0.15), value: talking)
-        .help(talking ? "Stop talking" : "Talk")
-    }
-
     // MARK: - Zoom Indicator
 
     private var zoomIndicator: some View {
@@ -523,29 +490,36 @@ public struct MultiStreamVideoView: View {
 
     private var bottomControls: some View {
         ZStack {
-            // Hold-to-talk, centred
-            pushToTalkButton
-
-            HStack {
-                let listening = streamManager.activeAudioMode != .off
-                glassButton(
-                    listening ? "speaker.wave.2.fill" : "speaker.slash.fill",
-                    size: 36,
-                    activeColor: listening ? Color.Ring.accent : nil,
-                    help: listening ? "Turn sound off" : "Turn sound on"
+            // Speaker and mic, centred and the same size
+            HStack(spacing: Spacing.lg) {
+                GlassButton(
+                    systemName: streamManager.isSoundOn ? "speaker.wave.2.fill" : "speaker.slash.fill",
+                    size: 46,
+                    activeColor: streamManager.isSoundOn ? Color.Ring.accent : nil,
+                    help: streamManager.isSoundOn ? "Turn sound off" : "Turn sound on"
                 ) {
-                    Task { await streamManager.setListening(!listening) }
+                    streamManager.setSoundOn(!streamManager.isSoundOn)
                 }
 
-                Spacer()
+                GlassButton(
+                    systemName: streamManager.isTalking ? "mic.fill" : "mic.slash.fill",
+                    size: 46,
+                    activeColor: streamManager.isTalking ? Color.Ring.error : nil,
+                    help: streamManager.isTalking ? "Stop talking" : "Talk"
+                ) {
+                    Task { await streamManager.toggleTalking() }
+                }
+            }
 
-                HStack(spacing: Spacing.sm) {
-                    glassButton("minus.magnifyingglass", size: 32, help: "Zoom out") { zoomOut() }
-                        .disabled(zoomScale <= minZoom)
-                        .opacity(zoomScale > minZoom ? 1 : 0.4)
-                    glassButton("plus.magnifyingglass", size: 32, help: "Zoom in") { zoomIn() }
+            HStack {
+                Spacer()
+                VStack(spacing: Spacing.sm) {
+                    glassButton("plus.magnifyingglass", size: 30, help: "Zoom in") { zoomIn() }
                         .disabled(zoomScale >= maxZoom)
                         .opacity(zoomScale < maxZoom ? 1 : 0.4)
+                    glassButton("minus.magnifyingglass", size: 30, help: "Zoom out") { zoomOut() }
+                        .disabled(zoomScale <= minZoom)
+                        .opacity(zoomScale > minZoom ? 1 : 0.4)
                 }
             }
         }
@@ -554,6 +528,7 @@ public struct MultiStreamVideoView: View {
         .padding(.bottom, Spacing.md)
         .background(
             LinearGradient(colors: [.clear, .black.opacity(0.7)], startPoint: .top, endPoint: .bottom)
+                .allowsHitTesting(false)
         )
     }
 

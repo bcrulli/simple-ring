@@ -338,12 +338,11 @@ public actor RingClient {
 
     // MARK: - Live View
 
-    public func startLiveView(deviceId: Int, audioMode: LiveViewSession.AudioMode) async throws -> LiveViewSession {
+    public func startLiveView(deviceId: Int) async throws -> LiveViewSession {
         LiveViewSession(
             deviceId: deviceId,
             accessToken: try await validAccessToken(),
-            hardwareId: try await hardwareId(),
-            audioMode: audioMode
+            hardwareId: try await hardwareId()
         )
     }
 }

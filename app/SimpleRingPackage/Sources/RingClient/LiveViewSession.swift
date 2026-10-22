@@ -7,18 +7,6 @@ import Foundation
 /// POST to /integrations/v1/liveview/start with local SDP offer
 /// Receives SDP answer in response - no WebSocket signaling needed
 public actor LiveViewSession {
-    /// Which audio the session negotiates. Audio is opt-in because WebRTC opens
-    /// the audio device for playout, and when the output device is also an
-    /// input (AirPods, headsets, many USB devices) macOS shows the mic indicator.
-    public enum AudioMode: Sendable, Equatable {
-        /// Video only - no audio device is touched
-        case off
-        /// Hear the doorbell
-        case listen
-        /// Hear and talk (the mic is only opened while talking)
-        case talk
-    }
-
     public enum State: Sendable, Equatable {
         case idle
         case connecting
@@ -61,7 +49,6 @@ public actor LiveViewSession {
     // Push-to-talk state
     public private(set) var isTalking: Bool = false
 
-    public let audioMode: AudioMode
     private let deviceId: Int
     private let accessToken: String
     private let hardwareId: String
@@ -97,8 +84,7 @@ public actor LiveViewSession {
 
     // MARK: - Init
 
-    public init(deviceId: Int, accessToken: String, hardwareId: String, audioMode: AudioMode) {
-        self.audioMode = audioMode
+    public init(deviceId: Int, accessToken: String, hardwareId: String) {
         self.deviceId = deviceId
         self.accessToken = accessToken
         self.hardwareId = hardwareId
@@ -333,9 +319,8 @@ public actor LiveViewSession {
             throw LiveViewError.peerConnectionNotReady
         }
 
-        // Always offer two-way audio: Ring refuses other offers (e.g. inactive
-        // audio). The audio mode is applied to Ring's answer instead - see
-        // `applyAudioMode(_:to:)`.
+        // Two-way audio, negotiated once so the speaker and mic buttons work
+        // instantly without reconnecting.
         let audioTransceiverInit = RTCRtpTransceiverInit()
         audioTransceiverInit.direction = .sendRecv
         audioTransceiverInit.streamIds = ["stream0"]
@@ -344,10 +329,8 @@ public actor LiveViewSession {
         // No track attached until talking: WebRTC opens the microphone
         // whenever a track is attached, even a disabled one.
         audioSender?.track = nil
-        if audioMode == .talk {
-            let audioSource = factory.audioSource(with: RTCMediaConstraints(mandatoryConstraints: nil, optionalConstraints: nil))
-            localAudioTrack = factory.audioTrack(with: audioSource, trackId: "audio0")
-        }
+        let audioSource = factory.audioSource(with: RTCMediaConstraints(mandatoryConstraints: nil, optionalConstraints: nil))
+        localAudioTrack = factory.audioTrack(with: audioSource, trackId: "audio0")
 
         // Set up video transceiver for receiving only
         let videoTransceiverInit = RTCRtpTransceiverInit()
@@ -428,7 +411,7 @@ public actor LiveViewSession {
             throw LiveViewError.peerConnectionNotReady
         }
 
-        let answer = RTCSessionDescription(type: .answer, sdp: Self.applyAudioMode(audioMode, to: sdp))
+        let answer = RTCSessionDescription(type: .answer, sdp: sdp)
 
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             pc.setRemoteDescription(answer) { error in
@@ -442,29 +425,6 @@ public actor LiveViewSession {
 
         // Check if we already have a video track
         checkForVideoTrack()
-    }
-
-    /// Narrows the audio direction in Ring's answer to what this session wants.
-    /// Answer directions are from Ring's side: `inactive` means no audio either
-    /// way (no audio device is used at all), `sendonly` means Ring sends and we
-    /// only play it. For talk mode the answer is used as-is.
-    static func applyAudioMode(_ mode: AudioMode, to sdp: String) -> String {
-        let direction: String
-        switch mode {
-        case .off: direction = "a=inactive"
-        case .listen: direction = "a=sendonly"
-        case .talk: return sdp
-        }
-        let directions: Set<String> = ["a=sendrecv", "a=sendonly", "a=recvonly", "a=inactive"]
-        var inAudio = false
-        let lines = sdp.components(separatedBy: "\n").map { rawLine -> String in
-            let hasCR = rawLine.hasSuffix("\r")
-            let line = hasCR ? String(rawLine.dropLast()) : rawLine
-            if line.hasPrefix("m=") { inAudio = line.hasPrefix("m=audio") }
-            guard inAudio, directions.contains(line) else { return rawLine }
-            return hasCR ? direction + "\r" : direction
-        }
-        return lines.joined(separator: "\n")
     }
 
     // MARK: - Track Handling
