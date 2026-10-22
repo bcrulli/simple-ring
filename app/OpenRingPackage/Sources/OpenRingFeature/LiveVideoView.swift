@@ -10,7 +10,6 @@ public struct LiveVideoView: View {
     let devices: [RingDevice]
     let onClose: () -> Void
     let onSwitchDevice: (RingDevice) -> Void
-    var captureHandler: FrameCaptureHandler?
 
     @State private var liveSession: LiveViewSession?
     @State private var videoTrack: RTCVideoTrack?
@@ -47,14 +46,12 @@ public struct LiveVideoView: View {
         device: RingDevice,
         devices: [RingDevice] = [],
         onClose: @escaping () -> Void,
-        onSwitchDevice: @escaping (RingDevice) -> Void = { _ in },
-        captureHandler: FrameCaptureHandler? = nil
+        onSwitchDevice: @escaping (RingDevice) -> Void = { _ in }
     ) {
         self.device = device
         self.devices = devices.isEmpty ? [device] : devices
         self.onClose = onClose
         self.onSwitchDevice = onSwitchDevice
-        self.captureHandler = captureHandler
     }
 
     public var body: some View {
@@ -66,8 +63,7 @@ public struct LiveVideoView: View {
             if let track = videoTrack {
                 WebRTCVideoView(
                     videoTrack: track,
-                    isPortrait: device.deviceType == .doorbell,
-                    captureHandler: captureHandler
+                    isPortrait: device.deviceType == .doorbell
                 )
             } else {
                 connectionPlaceholder
@@ -394,26 +390,6 @@ public struct LiveVideoView: View {
     }
 }
 
-// MARK: - Frame Capture Handler
-
-/// Observable handler for capturing frames from live video
-@MainActor
-public class FrameCaptureHandler: ObservableObject {
-    weak var metalView: MetalVideoView?
-
-    public init() {}
-
-    /// Capture the current video frame as JPEG data
-    public func captureFrame() -> Data? {
-        return metalView?.captureCurrentFrame()
-    }
-
-    /// Check if frame capture is available
-    public var isReady: Bool {
-        metalView != nil
-    }
-}
-
 // MARK: - WebRTC Video View (NSViewRepresentable with Custom Metal Renderer)
 
 #if os(macOS)
@@ -424,7 +400,6 @@ import AppKit
 struct WebRTCVideoView: NSViewRepresentable {
     let videoTrack: RTCVideoTrack
     let isPortrait: Bool
-    var captureHandler: FrameCaptureHandler?
 
     func makeNSView(context: Context) -> MetalVideoView {
         let videoView = MetalVideoView(isPortrait: isPortrait)
@@ -433,20 +408,12 @@ struct WebRTCVideoView: NSViewRepresentable {
         videoTrack.add(context.coordinator)
         context.coordinator.metalView = videoView
 
-        // Connect frame capture handler
-        if let handler = captureHandler {
-            handler.metalView = videoView
-        }
-
         NSLog("📹 WebRTCVideoView: Coordinator added to track")
         return videoView
     }
 
     func updateNSView(_ nsView: MetalVideoView, context: Context) {
-        // Update capture handler reference if needed
-        if let handler = captureHandler {
-            handler.metalView = nsView
-        }
+        // No updates needed
     }
 
     static func dismantleNSView(_ nsView: MetalVideoView, coordinator: Coordinator) {
@@ -498,67 +465,7 @@ class MetalVideoView: NSView {
         }
     }
 
-    private var currentFrame: RTCVideoFrame?
     private var frameCount = 0
-
-    // MARK: - Frame Capture
-
-    /// Capture the current video frame as JPEG data for AI analysis
-    func captureCurrentFrame() -> Data? {
-        guard let frame = currentFrame,
-              let buffer = frame.buffer as? RTCCVPixelBuffer else {
-            NSLog("📸 Frame capture failed: no current frame")
-            return nil
-        }
-
-        let pixelBuffer = buffer.pixelBuffer
-        let pixelFormat = CVPixelBufferGetPixelFormatType(pixelBuffer)
-
-        // Convert to CIImage
-        var ciImage: CIImage
-
-        switch pixelFormat {
-        case kCVPixelFormatType_420YpCbCr8BiPlanarFullRange,
-             kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange:
-            // NV12 YUV format - CIImage handles conversion automatically
-            ciImage = CIImage(cvPixelBuffer: pixelBuffer)
-
-        case kCVPixelFormatType_32BGRA:
-            // BGRA format - direct
-            ciImage = CIImage(cvPixelBuffer: pixelBuffer)
-
-        default:
-            NSLog("📸 Frame capture failed: unknown pixel format \(pixelFormat)")
-            return nil
-        }
-
-        // Apply portrait crop if needed (same as shader)
-        if isPortrait {
-            let fullWidth = ciImage.extent.width
-            let fullHeight = ciImage.extent.height
-            // Crop to 9:16 from center (matching shader coordinates)
-            let cropWidth = fullWidth * 0.5625 // 0.78125 - 0.21875 = 0.5625
-            let cropX = fullWidth * 0.21875
-            let cropRect = CGRect(x: cropX, y: 0, width: cropWidth, height: fullHeight)
-            ciImage = ciImage.cropped(to: cropRect)
-        }
-
-        // Convert to JPEG
-        let context = CIContext()
-        guard let cgImage = context.createCGImage(ciImage, from: ciImage.extent) else {
-            NSLog("📸 Frame capture failed: couldn't create CGImage")
-            return nil
-        }
-
-        let bitmapRep = NSBitmapImageRep(cgImage: cgImage)
-        guard let jpegData = bitmapRep.representation(using: .jpeg, properties: [.compressionFactor: 0.8]) else {
-            NSLog("📸 Frame capture failed: couldn't create JPEG")
-            return nil
-        }
-
-        NSLog("📸 Frame captured: \(jpegData.count) bytes, \(Int(ciImage.extent.width))x\(Int(ciImage.extent.height))")
-        return jpegData
-    }
 
     init(isPortrait: Bool = false) {
         self.isPortrait = isPortrait
@@ -741,7 +648,6 @@ class MetalVideoView: NSView {
     }
 
     func renderFrame(_ frame: RTCVideoFrame) {
-        currentFrame = frame
         frameCount += 1
 
         // Log every 30 frames (roughly once per second)

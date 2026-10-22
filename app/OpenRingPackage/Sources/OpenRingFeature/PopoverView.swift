@@ -21,19 +21,9 @@ public struct PopoverView: View {
     @State private var isLoadingVideo = false
     @StateObject private var streamManager = MultiStreamManager()
 
-    // AI Guard state
-    @State private var aiQueryText = ""
-    @State private var aiResponse: String = ""
-    @State private var isAILoading = false
-    @State private var showAIQuery = false
-    @State private var hasAnthropicAPIKey = false
-
     // Drawer state
     @State private var isDrawerExpanded = true
     @AppStorage("drawerExpanded") private var drawerExpandedPref = true
-
-    // Frame capture for live AI analysis
-    @StateObject private var frameCaptureHandler = FrameCaptureHandler()
 
     // Window scale factor (persisted)
     @AppStorage("windowScale") private var windowScale: Double = 1.0
@@ -108,7 +98,7 @@ public struct PopoverView: View {
         }
     }
 
-    // Video height (without AI panel, with scale applied)
+    // Video height (without drawer panel, with scale applied)
     private var videoHeight: CGFloat {
         let scale = CGFloat(windowScale)
         guard let device = selectedDevice else { return 400 * scale }
@@ -136,7 +126,6 @@ public struct PopoverView: View {
                             device: device,
                             devices: videoDevices,
                             streamManager: streamManager,
-                            captureHandler: frameCaptureHandler,
                             onClose: {
                                 withAnimation(.easeInOut(duration: 0.2)) {
                                     showLiveView = false
@@ -148,20 +137,15 @@ public struct PopoverView: View {
                         )
                         .frame(height: videoHeight)
 
-                        // Collapsible drawer with AI Panel (always shown, but AI requires API key)
+                        // Collapsible drawer with event timeline
                         DrawerPanel(
                             isExpanded: $isDrawerExpanded,
                             expandedHeight: drawerExpandedHeight
                         ) {
-                            AIOverlayPanel(
-                                queryText: $aiQueryText,
-                                response: $aiResponse,
-                                isLoading: $isAILoading,
+                            EventTimelinePanel(
                                 playingVideoURL: $playingVideoURL,
                                 isLoadingVideo: $isLoadingVideo,
                                 events: events,
-                                onSubmit: { submitLiveAIQuery() },
-                                onCapture: { captureLiveFrame() },
                                 onEventTap: { event in playEvent(event) }
                             )
                         }
@@ -209,11 +193,6 @@ public struct PopoverView: View {
 
             // Restore drawer state from preference
             isDrawerExpanded = drawerExpandedPref
-
-            // Check if Anthropic API key is configured
-            Task {
-                hasAnthropicAPIKey = (try? await KeychainManager.shared.getAnthropicAPIKey()) != nil
-            }
         }
         .onChange(of: selectedDevice?.id) { _, newId in
             // If device is newly selected
@@ -302,86 +281,6 @@ public struct PopoverView: View {
             .padding(.horizontal, 8)
             .padding(.vertical, 6)
             .frame(height: footerHeight)
-    }
-
-    // MARK: - Live AI Commands
-
-    private func submitLiveAIQuery() {
-        guard !aiQueryText.isEmpty && !isAILoading else { return }
-
-        isAILoading = true
-        let question = aiQueryText
-        let currentEvents = events
-
-        // Route the command using AICommandRouter
-        let command = AICommandRouter.route(question)
-
-        Task {
-            do {
-                let frameData = frameCaptureHandler.captureFrame()
-                let result = try await AICommandHandler.shared.execute(
-                    command,
-                    frameData: frameData,
-                    events: currentEvents
-                )
-
-                await MainActor.run {
-                    switch result {
-                    case .text(let text):
-                        self.aiResponse = text
-                    case .showVideo(let event):
-                        self.aiResponse = ""
-                        playEvent(event)
-                    case .error(let message):
-                        self.aiResponse = "⚠️ \(message)"
-                    }
-                    isAILoading = false
-                    aiQueryText = ""  // Clear input after submission
-                }
-            } catch {
-                await MainActor.run {
-                    self.aiResponse = "Error: \(error.localizedDescription)"
-                    isAILoading = false
-                }
-            }
-        }
-    }
-
-    private func captureLiveFrame() {
-        guard !isAILoading else { return }
-
-        NSLog("📸 captureLiveFrame: Starting capture")
-        NSLog("📸 frameCaptureHandler.isReady: \(frameCaptureHandler.isReady)")
-        isAILoading = true
-
-        Task {
-            guard let frameData = frameCaptureHandler.captureFrame() else {
-                NSLog("📸 captureLiveFrame: No frame data available")
-                await MainActor.run {
-                    self.aiResponse = "⚠️ No video frame available. Please wait for the stream to start."
-                    isAILoading = false
-                }
-                return
-            }
-
-            NSLog("📸 captureLiveFrame: Got frame data, size: \(frameData.count) bytes")
-
-            do {
-                NSLog("📸 captureLiveFrame: Sending to VisionAnalyzer...")
-                let description = try await VisionAnalyzer.shared.analyze(frameData, prompt: nil)
-                NSLog("📸 captureLiveFrame: Got response: \(description.prefix(100))...")
-                await MainActor.run {
-                    self.aiResponse = description
-                    isAILoading = false
-                }
-            } catch {
-                NSLog("📸 captureLiveFrame: Error: \(error.localizedDescription)")
-                await MainActor.run {
-                    self.aiResponse = "Error: \(error.localizedDescription)"
-                    isAILoading = false
-                }
-            }
-        }
     }
 
     // MARK: - Embedded Video Player

@@ -352,11 +352,6 @@ struct SettingsView: View {
     @AppStorage("notificationSound") private var notificationSound: Bool = true
     @AppStorage("globalHotkey") private var globalHotkey: String = "⌘`"
 
-    // API key state (loaded from keychain)
-    @State private var anthropicAPIKey: String = ""
-    @State private var isAPIKeySaved: Bool = false
-    @State private var showAPIKey: Bool = false
-
     var body: some View {
         Form {
             // MARK: - Notifications Section
@@ -394,53 +389,6 @@ struct SettingsView: View {
                     .foregroundStyle(.secondary)
             }
 
-            // MARK: - AI Section
-            Section {
-                HStack {
-                    if showAPIKey {
-                        TextField("API Key", text: $anthropicAPIKey)
-                            .textFieldStyle(.roundedBorder)
-                    } else {
-                        SecureField("API Key", text: $anthropicAPIKey)
-                            .textFieldStyle(.roundedBorder)
-                    }
-
-                    Button {
-                        showAPIKey.toggle()
-                    } label: {
-                        Image(systemName: showAPIKey ? "eye.slash" : "eye")
-                    }
-                    .buttonStyle(.plain)
-                }
-
-                HStack {
-                    if isAPIKeySaved {
-                        Label("API key saved", systemImage: "checkmark.circle.fill")
-                            .foregroundStyle(.green)
-                            .font(.caption)
-                    }
-
-                    Spacer()
-
-                    Button("Save") {
-                        saveAPIKey()
-                    }
-                    .disabled(anthropicAPIKey.isEmpty)
-
-                    if isAPIKeySaved {
-                        Button("Clear", role: .destructive) {
-                            clearAPIKey()
-                        }
-                    }
-                }
-            } header: {
-                Text("AI Guard")
-            } footer: {
-                Text("Enter your Anthropic API key to enable AI-powered scene analysis. Get a key at console.anthropic.com")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-
             // MARK: - Display Section
             Section("Display") {
                 Toggle("Show Battery Level", isOn: $showBatteryIndicator)
@@ -459,49 +407,6 @@ struct SettingsView: View {
         }
         .formStyle(.grouped)
         .frame(width: 450, height: 500)
-        .onAppear {
-            loadAPIKey()
-        }
-    }
-
-    // MARK: - API Key Management
-
-    private func loadAPIKey() {
-        Task {
-            if let key = try? await KeychainManager.shared.getAnthropicAPIKey() {
-                await MainActor.run {
-                    anthropicAPIKey = key
-                    isAPIKeySaved = true
-                }
-            }
-        }
-    }
-
-    private func saveAPIKey() {
-        Task {
-            do {
-                try await KeychainManager.shared.saveAnthropicAPIKey(anthropicAPIKey)
-                await MainActor.run {
-                    isAPIKeySaved = true
-                }
-            } catch {
-                print("Failed to save API key: \(error)")
-            }
-        }
-    }
-
-    private func clearAPIKey() {
-        Task {
-            do {
-                try await KeychainManager.shared.deleteAnthropicAPIKey()
-                await MainActor.run {
-                    anthropicAPIKey = ""
-                    isAPIKeySaved = false
-                }
-            } catch {
-                print("Failed to clear API key: \(error)")
-            }
-        }
     }
 }
 

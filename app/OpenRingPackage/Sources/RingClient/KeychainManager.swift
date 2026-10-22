@@ -61,20 +61,6 @@ public actor KeychainManager {
         try delete(key: "access_token_expires")
     }
 
-    // MARK: - Anthropic API Key
-
-    public func saveAnthropicAPIKey(_ key: String) throws {
-        try save(key: "anthropic_api_key", value: key)
-    }
-
-    public func getAnthropicAPIKey() throws -> String? {
-        try get(key: "anthropic_api_key")
-    }
-
-    public func deleteAnthropicAPIKey() throws {
-        try delete(key: "anthropic_api_key")
-    }
-
     // MARK: - Generic Keychain Operations
 
     private func save(key: String, value: String) throws {

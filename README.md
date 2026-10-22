@@ -12,7 +12,9 @@
 
 ---
 
-OpenRing brings your Ring devices to your Mac's menu bar. View live streams, get notifications, talk to visitors, control your devices, and even ask AI what's happening—all without opening a browser or phone app.
+OpenRing brings your Ring devices to your Mac's menu bar. View live streams, get notifications, talk to visitors, and control your devices—all without opening a browser or phone app.
+
+This is a privacy-focused fork: it only talks to Ring's servers (to log in and stream your feed) and nothing else. All AI/Claude/Anthropic integration has been removed.
 
 ## Why OpenRing?
 
@@ -22,8 +24,7 @@ Ring's official app is phone-first. There's no native Mac app, just a web dashbo
 - **Menu bar access** — One click (or hotkey) to see your cameras
 - **Real-time streaming** — WebRTC video with sub-second latency, faster than the phone app
 - **Instant access** — No waiting for the Ring app to load—click and stream
-- **AI-powered** — Ask "What's at the door?" and get an instant answer
-- **Privacy-focused** — Your credentials stay in Keychain, no telemetry
+- **Privacy-focused** — Your credentials stay in Keychain, no telemetry, no third-party network calls
 
 ---
 
@@ -48,27 +49,6 @@ Two-way audio communication with visitors.
 - **Hold-to-talk** — Hold the microphone button to speak, release to listen
 - **Visual feedback** — Button animates to show when transmitting
 - **Low latency** — Audio streams via WebRTC alongside video
-
-### AI Guard
-
-Ask questions about what your cameras see using Claude's vision capabilities.
-
-**Live Analysis:**
-- "What's at the door?" — Captures current frame and describes the scene
-- "Is there a package?" — Detects objects in view
-- "Describe what you see" — General scene understanding
-
-**Event Queries:**
-- "Who came today?" — Summarizes events from history
-- "Show me the last motion" — Plays back most recent motion event
-- "Any deliveries this week?" — Searches event history
-
-**How it works:**
-1. Captures a frame from the live WebRTC stream (or fetches from event history)
-2. Sends to Anthropic's Claude API with your question
-3. Returns natural language response with option to play related video
-
-Requires an Anthropic API key (stored securely in Keychain).
 
 ### Device Controls
 
@@ -121,7 +101,6 @@ The global hotkey is customizable in Settings (⌘⇧R, ⌘⌥O, ⌃⌥Space, et
 | Notification sound | On/Off | On |
 | Global hotkey | ⌘`, ⌘⇧R, ⌘⌥O, ⌃⌥Space | ⌘` |
 | Show battery level | On/Off | On |
-| Anthropic API key | Securely stored | — |
 
 ---
 
@@ -182,8 +161,7 @@ open-ring/
 │       │   │   ├── PopoverView.swift
 │       │   │   ├── MultiStreamVideoView.swift
 │       │   │   ├── LoginView.swift
-│       │   │   ├── EventTimelineView.swift
-│       │   │   ├── AIOverlayPanel.swift
+│       │   │   ├── EventTimelinePanel.swift
 │       │   │   ├── DrawerPanel.swift
 │       │   │   ├── KeyboardShortcutManager.swift
 │       │   │   └── NotificationManager.swift
@@ -217,7 +195,6 @@ open-ring/
 **OpenRingFeature** — All UI and app logic:
 - SwiftUI views for every screen
 - WebRTC video rendering with Metal
-- AI integration with Anthropic
 - Notification handling
 - Keyboard shortcut management
 
@@ -347,22 +324,12 @@ try await RingClient.shared.setMotionDetection(deviceId: device.id, enabled: fal
 5. Video track attached to `RTCMTLVideoView`
 6. Audio handled via WebRTC's audio session
 
-### AI Integration
-
-1. User types question or taps capture button
-2. App captures current frame from WebRTC video track
-3. Frame encoded as base64 JPEG
-4. Sent to Anthropic Claude API with vision capability
-5. Response streamed back and displayed
-6. If response references an event, show "Play" button
-
 ---
 
 ## Privacy & Security
 
 - **Credentials** — Stored in macOS Keychain, never on disk
-- **API Keys** — Anthropic key stored in Keychain separately
-- **Network** — All traffic over HTTPS
+- **Network** — All traffic over HTTPS, and the app only talks to Ring's servers (login + live feed). No AI/third-party API calls of any kind.
 - **No Telemetry** — Zero analytics, tracking, or phone-home
 - **Open Source** — Audit the code yourself
 - **Local Only** — No cloud backend, speaks directly to Ring
@@ -436,5 +403,5 @@ MIT License. See [LICENSE](LICENSE) for details.
 ---
 
 <p align="center">
-  Built with SwiftUI, WebRTC, and Claude
+  Built with SwiftUI and WebRTC
 </p>

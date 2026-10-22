@@ -96,29 +96,10 @@ public final class StorageManager: Sendable {
                 t.column("created_at", .integer).defaults(sql: "(strftime('%s', 'now'))")
             }
 
-            // Webhooks table
-            try db.create(table: "webhooks") { t in
-                t.column("id", .text).primaryKey()
-                t.column("name", .text).notNull()
-                t.column("url", .text).notNull()
-                t.column("events_json", .text)
-                t.column("headers_json", .text)
-                t.column("enabled", .integer).defaults(to: 1)
-                t.column("last_triggered_at", .integer)
-                t.column("created_at", .integer).defaults(sql: "(strftime('%s', 'now'))")
-            }
-
             // Indexes
             try db.create(index: "idx_events_device_created", on: "events", columns: ["device_id", "created_at"])
             try db.create(index: "idx_events_kind", on: "events", columns: ["kind"])
             try db.create(index: "idx_clips_device", on: "clips", columns: ["device_id", "created_at"])
-        }
-
-        // Migration v2: Add AI description column to events
-        migrator.registerMigration("v2_ai_description") { db in
-            try db.alter(table: "events") { t in
-                t.add(column: "ai_description", .text)
-            }
         }
 
         try migrator.migrate(dbQueue)
@@ -191,23 +172,13 @@ public extension StorageManager {
         }
     }
 
-    /// Update AI description for an event
-    func updateEventDescription(_ eventId: String, description: String) throws {
-        try dbQueue.write { db in
-            try db.execute(
-                sql: "UPDATE events SET ai_description = ? WHERE id = ?",
-                arguments: [description, eventId]
-            )
-        }
-    }
-
-    /// Get recent events with their AI descriptions
-    func getRecentEventsWithDescriptions(hours: Int = 24, limit: Int = 50) throws -> [StoredEvent] {
+    /// Get recent events
+    func getRecentEvents(hours: Int = 24, limit: Int = 50) throws -> [StoredEvent] {
         let cutoff = Int(Date().timeIntervalSince1970) - (hours * 3600)
 
         return try dbQueue.read { db in
             let rows = try Row.fetchAll(db, sql: """
-                SELECT e.id, e.device_id, e.kind, e.created_at, e.ai_description, d.name as device_name
+                SELECT e.id, e.device_id, e.kind, e.created_at, d.name as device_name
                 FROM events e
                 LEFT JOIN devices d ON e.device_id = d.id
                 WHERE e.created_at > ?
@@ -221,22 +192,9 @@ public extension StorageManager {
                     deviceId: row["device_id"],
                     kind: row["kind"],
                     createdAt: Date(timeIntervalSince1970: TimeInterval(row["created_at"] as Int)),
-                    aiDescription: row["ai_description"],
                     deviceName: row["device_name"]
                 )
             }
-        }
-    }
-
-    /// Check if an event already has an AI description
-    func hasDescription(eventId: String) throws -> Bool {
-        try dbQueue.read { db in
-            let description = try String.fetchOne(
-                db,
-                sql: "SELECT ai_description FROM events WHERE id = ?",
-                arguments: [eventId]
-            )
-            return description != nil && !description!.isEmpty
         }
     }
 }
@@ -248,7 +206,6 @@ public struct StoredEvent: Sendable {
     public let deviceId: String
     public let kind: String
     public let createdAt: Date
-    public let aiDescription: String?
     public let deviceName: String?
 
     public var kindDisplayName: String {

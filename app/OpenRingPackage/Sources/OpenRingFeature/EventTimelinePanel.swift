@@ -7,42 +7,25 @@ import UniformTypeIdentifiers
 import AppKit
 #endif
 
-// MARK: - AI Overlay Panel
-// Bottom panel: Timeline → Video playback → AI input → Response
+// MARK: - Event Timeline Panel
+// Bottom panel: Timeline → Video playback
 
-public struct AIOverlayPanel: View {
-    @Binding var queryText: String
-    @Binding var response: String
-    @Binding var isLoading: Bool
+public struct EventTimelinePanel: View {
     @Binding var playingVideoURL: URL?
     @Binding var isLoadingVideo: Bool
 
     let events: [RingEvent]
-    let onSubmit: () -> Void
-    let onCapture: () -> Void
     let onEventTap: (RingEvent) -> Void
 
-    @FocusState private var isInputFocused: Bool
-
     public init(
-        queryText: Binding<String>,
-        response: Binding<String>,
-        isLoading: Binding<Bool>,
         playingVideoURL: Binding<URL?>,
         isLoadingVideo: Binding<Bool>,
         events: [RingEvent],
-        onSubmit: @escaping () -> Void,
-        onCapture: @escaping () -> Void,
         onEventTap: @escaping (RingEvent) -> Void
     ) {
-        self._queryText = queryText
-        self._response = response
-        self._isLoading = isLoading
         self._playingVideoURL = playingVideoURL
         self._isLoadingVideo = isLoadingVideo
         self.events = events
-        self.onSubmit = onSubmit
-        self.onCapture = onCapture
         self.onEventTap = onEventTap
     }
 
@@ -59,14 +42,6 @@ public struct AIOverlayPanel: View {
                 videoLoadingView
             } else if let videoURL = playingVideoURL {
                 historyVideoPlayer(url: videoURL)
-            }
-
-            // 3. AI Input Bar
-            inputBar
-
-            // 4. Response area (scrollable, when we have a response)
-            if !response.isEmpty || isLoading {
-                responseArea
             }
         }
         .padding(.horizontal, Spacing.md)
@@ -167,92 +142,6 @@ public struct AIOverlayPanel: View {
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyy-MM-dd_HHmmss"
         return formatter
-    }
-
-    // MARK: - Input Bar
-
-    private var inputBar: some View {
-        HStack(spacing: Spacing.sm) {
-            // AI icon
-            Image(systemName: "sparkles")
-                .font(.system(size: 14))
-                .foregroundStyle(Color.Ring.accent)
-
-            // Text input
-            TextField("Ask your AI guard...", text: $queryText)
-                .textFieldStyle(.plain)
-                .font(.Ring.body)
-                .foregroundStyle(.white)
-                .focused($isInputFocused)
-                .onSubmit {
-                    if !queryText.isEmpty {
-                        onSubmit()
-                    }
-                }
-
-            // Capture button
-            Button {
-                onCapture()
-            } label: {
-                Image(systemName: "camera.fill")
-                    .font(.system(size: 14))
-                    .foregroundStyle(.white.opacity(0.7))
-                    .frame(width: 32, height: 32)
-                    .background(Color.white.opacity(0.1))
-                    .clipShape(Circle())
-            }
-            .buttonStyle(.plain)
-            .help("Capture and analyze current frame")
-
-            // Submit button
-            if !queryText.isEmpty {
-                Button {
-                    onSubmit()
-                } label: {
-                    Image(systemName: "arrow.up.circle.fill")
-                        .font(.system(size: 24))
-                        .foregroundStyle(Color.Ring.accent)
-                }
-                .buttonStyle(.plain)
-                .transition(.scale.combined(with: .opacity))
-            }
-        }
-        .padding(.horizontal, Spacing.md)
-        .padding(.vertical, Spacing.sm)
-        .background(Color.white.opacity(0.1))
-        .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
-    }
-
-    // MARK: - Response Area (Scrollable)
-
-    private var responseArea: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: Spacing.xs) {
-                if isLoading {
-                    HStack(spacing: Spacing.sm) {
-                        ProgressView()
-                            .scaleEffect(0.7)
-                            .tint(.white)
-
-                        Text("Thinking...")
-                            .font(.Ring.body)
-                            .foregroundStyle(.white.opacity(0.7))
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                } else {
-                    Text(response)
-                        .font(.Ring.body)
-                        .foregroundStyle(.white)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .textSelection(.enabled)
-                }
-            }
-            .padding(Spacing.md)
-        }
-        .frame(maxHeight: 120)  // Limit height, scrollable
-        .background(Color.white.opacity(0.05))
-        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .transition(.opacity.combined(with: .move(edge: .top)))
     }
 }
 
@@ -426,7 +315,7 @@ private struct EventChip: View {
 // MARK: - Preview
 
 #if DEBUG
-struct AIOverlayPanel_Previews: PreviewProvider {
+struct EventTimelinePanel_Previews: PreviewProvider {
     static var previews: some View {
         ZStack {
             Color.black
@@ -434,15 +323,10 @@ struct AIOverlayPanel_Previews: PreviewProvider {
             VStack {
                 Spacer()
 
-                AIOverlayPanel(
-                    queryText: .constant("Who came today?"),
-                    response: .constant("Two people visited today: a delivery person at 2:30 PM and your neighbor at 4:15 PM. The delivery person left a package at the door."),
-                    isLoading: .constant(false),
+                EventTimelinePanel(
                     playingVideoURL: .constant(nil),
                     isLoadingVideo: .constant(false),
                     events: [],
-                    onSubmit: {},
-                    onCapture: {},
                     onEventTap: { _ in }
                 )
             }

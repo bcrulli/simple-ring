@@ -10,7 +10,6 @@ public struct MultiStreamVideoView: View {
     let device: RingDevice
     let devices: [RingDevice]
     @ObservedObject var streamManager: MultiStreamManager
-    var captureHandler: FrameCaptureHandler?
     let onClose: () -> Void
     let onSwitchDevice: (RingDevice) -> Void
 
@@ -71,8 +70,7 @@ public struct MultiStreamVideoView: View {
             if let track = videoTrack {
                 WebRTCVideoView(
                     videoTrack: track,
-                    isPortrait: device.deviceType == .doorbell,
-                    captureHandler: captureHandler
+                    isPortrait: device.deviceType == .doorbell
                 )
                 .scaleEffect(zoomScale)
                 .offset(zoomOffset)
