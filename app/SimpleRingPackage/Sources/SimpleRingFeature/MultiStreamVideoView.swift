@@ -13,15 +13,14 @@ public struct MultiStreamVideoView: View {
     let onClose: () -> Void
     let onSwitchDevice: (RingDevice) -> Void
 
-    @State private var isMuted = false
     @State private var isTalking = false
-    @State private var dragOffset: CGFloat = 0
-    @State private var hasVideo = false  // Track video availability for reactivity
     @State private var isHovering = false  // Auto-hide overlay when not hovering
+    @AppStorage("showBatteryIndicator") private var showBatteryIndicator = true
 
     // Device control states
     @State private var isFloodlightOn = false
     @State private var isSirenActive = false
+    @State private var sirenResetTask: Task<Void, Never>?
     @State private var isControlLoading = false  // Show loading during API calls
 
     // Zoom state
@@ -65,8 +64,6 @@ public struct MultiStreamVideoView: View {
             // Video background
             Color.black
 
-            // Video content or placeholder with zoom applied
-            // Use combined id to force recreation when track becomes available
             if let track = videoTrack {
                 WebRTCVideoView(
                     videoTrack: track,
@@ -74,7 +71,7 @@ public struct MultiStreamVideoView: View {
                 )
                 .scaleEffect(zoomScale)
                 .offset(zoomOffset)
-                .id("\(device.id)_hasVideo")
+                .id(device.id)  // portrait cropping is fixed per renderer
                 .gesture(zoomPanGesture)
                 #if os(macOS)
                 .onScrollWheel { delta in
@@ -93,7 +90,6 @@ public struct MultiStreamVideoView: View {
                 #endif
             } else {
                 connectionPlaceholder
-                    .id("\(device.id)_noVideo")
             }
 
             // Zoom indicator (when zoomed in, auto-hide with overlay)
@@ -139,13 +135,7 @@ public struct MultiStreamVideoView: View {
         .gesture(
             zoomScale == 1.0 ?
             DragGesture(minimumDistance: 50)
-                .onChanged { value in
-                    dragOffset = value.translation.width
-                }
                 .onEnded { value in
-                    withAnimation(.easeOut(duration: 0.2)) {
-                        dragOffset = 0
-                    }
                     // Swipe threshold: 50px
                     if value.translation.width < -50 && canGoForward {
                         switchToDevice(at: currentIndex + 1)
@@ -155,16 +145,7 @@ public struct MultiStreamVideoView: View {
                 }
             : nil
         )
-        // Force view update when streams dictionary changes
-        .onChange(of: streamManager.streams.count) { _, _ in
-            updateVideoState()
-        }
-        // Also watch for connecting state changes (which happen before video arrives)
-        .onChange(of: streamManager.isConnecting) { _, _ in
-            updateVideoState()
-        }
         .onAppear {
-            hasVideo = streamManager.hasVideoTrack(for: device.id)
             // Set this device as active for audio
             streamManager.setActiveDevice(device.id)
             // Auto-focus on appear for keyboard navigation
@@ -181,21 +162,6 @@ public struct MultiStreamVideoView: View {
             // Switch audio to the new device
             streamManager.setActiveDevice(newId)
         }
-        // Periodic check for video track (backup for cases where onChange doesn't fire)
-        .task(id: device.id) {
-            while !Task.isCancelled {
-                try? await Task.sleep(nanoseconds: 200_000_000) // 200ms
-                let nowHasVideo = streamManager.hasVideoTrack(for: device.id)
-                if nowHasVideo != hasVideo {
-                    await MainActor.run {
-                        hasVideo = nowHasVideo
-                        NSLog("📹 MultiStreamVideoView: Video track detected for \(device.name)")
-                    }
-                }
-            }
-        }
-        // Use hasVideo in id to force view recreation
-        .id("\(device.id)_\(hasVideo)")
         // Make focusable with binding for auto-focus
         .focusable()
         .focused($isViewFocused)
@@ -203,7 +169,6 @@ public struct MultiStreamVideoView: View {
         // Keyboard arrow key support
         .onKeyPress(.leftArrow) {
             if canGoBack {
-                NSLog("⬅️ Left arrow KEY pressed")
                 switchToDevice(at: currentIndex - 1)
                 return .handled
             }
@@ -211,7 +176,6 @@ public struct MultiStreamVideoView: View {
         }
         .onKeyPress(.rightArrow) {
             if canGoForward {
-                NSLog("➡️ Right arrow KEY pressed")
                 switchToDevice(at: currentIndex + 1)
                 return .handled
             }
@@ -270,7 +234,6 @@ public struct MultiStreamVideoView: View {
     private func arrowButton(direction: ArrowDirection) -> some View {
         Button {
             let targetIndex = direction == .left ? currentIndex - 1 : currentIndex + 1
-            NSLog("🔄 Arrow tapped: \(direction), switching to device \(targetIndex)")
             switchToDevice(at: targetIndex)
         } label: {
             ZStack {
@@ -319,14 +282,6 @@ public struct MultiStreamVideoView: View {
         guard index >= 0 && index < devices.count else { return }
         let newDevice = devices[index]
         onSwitchDevice(newDevice)
-    }
-
-    private func updateVideoState() {
-        let nowHasVideo = streamManager.hasVideoTrack(for: device.id)
-        if nowHasVideo != hasVideo {
-            hasVideo = nowHasVideo
-            NSLog("📹 MultiStreamVideoView: Video state updated for \(device.name): \(hasVideo)")
-        }
     }
 
     // MARK: - Zoom Functions
@@ -545,7 +500,7 @@ public struct MultiStreamVideoView: View {
                     .foregroundStyle(.white)
 
                 // Battery indicator (only for wireless devices)
-                if let battery = device.batteryLevel {
+                if showBatteryIndicator, let battery = device.batteryLevel {
                     HStack(spacing: 3) {
                         Image(systemName: batteryIcon(for: battery))
                             .font(.system(size: 12))
@@ -650,16 +605,11 @@ public struct MultiStreamVideoView: View {
             do {
                 let newState = !isFloodlightOn
                 try await RingClient.shared.setFloodlight(deviceId: device.id, enabled: newState)
-                await MainActor.run {
-                    isFloodlightOn = newState
-                    isControlLoading = false
-                }
+                isFloodlightOn = newState
             } catch {
                 NSLog("❌ Failed to toggle floodlight: \(error)")
-                await MainActor.run {
-                    isControlLoading = false
-                }
             }
+            isControlLoading = false
         }
     }
 
@@ -669,26 +619,19 @@ public struct MultiStreamVideoView: View {
             do {
                 let newState = !isSirenActive
                 try await RingClient.shared.setSiren(deviceId: device.id, enabled: newState)
-                await MainActor.run {
-                    isSirenActive = newState
-                    isControlLoading = false
-                    // Auto-disable siren after 30 seconds (safety)
-                    if newState {
-                        Task {
-                            try? await Task.sleep(nanoseconds: 30_000_000_000)
-                            await MainActor.run {
-                                if isSirenActive {
-                                    isSirenActive = false
-                                }
-                            }
-                        }
+                isSirenActive = newState
+                isControlLoading = false
+                // Ring stops the siren after 30 seconds; mirror that in the UI
+                sirenResetTask?.cancel()
+                if newState {
+                    sirenResetTask = Task {
+                        try? await Task.sleep(for: .seconds(30))
+                        if !Task.isCancelled { isSirenActive = false }
                     }
                 }
             } catch {
                 NSLog("❌ Failed to toggle siren: \(error)")
-                await MainActor.run {
-                    isControlLoading = false
-                }
+                isControlLoading = false
             }
         }
     }
@@ -696,79 +639,59 @@ public struct MultiStreamVideoView: View {
     // MARK: - Bottom Controls
 
     private var bottomControls: some View {
-        HStack(spacing: Spacing.md) {
-            // Mute incoming audio button
-            Button {
-                isMuted.toggle()
-                streamManager.setMuted(isMuted)
-            } label: {
-                Image(systemName: isMuted ? "speaker.slash.fill" : "speaker.wave.2.fill")
-                    .font(.system(size: 16))
-                    .foregroundStyle(isMuted ? .white.opacity(0.5) : .white)
-                    .frame(width: 40, height: 40)
-                    .background(isMuted ? .red.opacity(0.6) : .black.opacity(0.5))
-                    .clipShape(Circle())
-            }
-            .buttonStyle(.plain)
-            .help(isMuted ? "Unmute" : "Mute")
-
-            // Zoom out button
-            Button {
-                zoomOut()
-            } label: {
-                Image(systemName: "minus.magnifyingglass")
-                    .font(.system(size: 14))
-                    .foregroundStyle(zoomScale > minZoom ? .white : .white.opacity(0.3))
-                    .frame(width: 36, height: 36)
-                    .background(.black.opacity(0.5))
-                    .clipShape(Circle())
-            }
-            .buttonStyle(.plain)
-            .disabled(zoomScale <= minZoom)
-
-            Spacer()
-
-            // Push-to-talk button (hold to talk)
+        ZStack {
+            // Hold-to-talk, centred
             pushToTalkButton
 
-            Spacer()
+            HStack {
+                // Mute incoming audio
+                circleButton(
+                    systemName: streamManager.isMuted ? "speaker.slash.fill" : "speaker.wave.2.fill",
+                    size: 40,
+                    tint: streamManager.isMuted ? .white.opacity(0.6) : .white,
+                    background: streamManager.isMuted ? Color.Ring.error.opacity(0.7) : .black.opacity(0.5)
+                ) {
+                    streamManager.setMuted(!streamManager.isMuted)
+                }
+                .help(streamManager.isMuted ? "Unmute" : "Mute")
 
-            // Zoom in button
-            Button {
-                zoomIn()
-            } label: {
-                Image(systemName: "plus.magnifyingglass")
-                    .font(.system(size: 14))
-                    .foregroundStyle(zoomScale < maxZoom ? .white : .white.opacity(0.3))
-                    .frame(width: 36, height: 36)
-                    .background(.black.opacity(0.5))
-                    .clipShape(Circle())
-            }
-            .buttonStyle(.plain)
-            .disabled(zoomScale >= maxZoom)
+                Spacer()
 
-            // Disconnect button
-            Button {
-                onClose()
-            } label: {
-                Image(systemName: "phone.down.fill")
-                    .font(.system(size: 16))
-                    .foregroundStyle(.white)
-                    .frame(width: 40, height: 40)
-                    .background(.red)
-                    .clipShape(Circle())
+                // Zoom
+                HStack(spacing: Spacing.sm) {
+                    circleButton(systemName: "minus.magnifyingglass", size: 34,
+                                 tint: zoomScale > minZoom ? .white : .white.opacity(0.3)) { zoomOut() }
+                        .disabled(zoomScale <= minZoom)
+                    circleButton(systemName: "plus.magnifyingglass", size: 34,
+                                 tint: zoomScale < maxZoom ? .white : .white.opacity(0.3)) { zoomIn() }
+                        .disabled(zoomScale >= maxZoom)
+                }
             }
-            .buttonStyle(.plain)
         }
         .padding(.horizontal, Spacing.lg)
-        .padding(.vertical, Spacing.md)
+        .padding(.top, Spacing.xl)
+        .padding(.bottom, Spacing.md)
         .background(
-            LinearGradient(
-                colors: [.clear, .black.opacity(0.6), .black.opacity(0.95)],
-                startPoint: .top,
-                endPoint: .bottom
-            )
+            LinearGradient(colors: [.clear, .black.opacity(0.75)], startPoint: .top, endPoint: .bottom)
         )
+    }
+
+    private func circleButton(
+        systemName: String,
+        size: CGFloat,
+        tint: Color = .white,
+        background: Color = .black.opacity(0.5),
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Image(systemName: systemName)
+                .font(.system(size: size * 0.4, weight: .medium))
+                .foregroundStyle(tint)
+                .frame(width: size, height: size)
+                .background(background)
+                .clipShape(Circle())
+        }
+        .buttonStyle(.plain)
     }
 }
 

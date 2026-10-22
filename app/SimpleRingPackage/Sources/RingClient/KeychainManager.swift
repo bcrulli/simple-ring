@@ -1,148 +1,77 @@
 import Foundation
 import Security
 
+// MARK: - Stored Session
+
+/// Everything the app keeps in the Keychain, stored as a single item so macOS
+/// asks for Keychain access at most once (rather than once per item).
+public struct StoredSession: Codable, Sendable {
+    /// Identifies this Mac to Ring. Kept across logouts so logging back in
+    /// doesn't register a new device in Ring's Control Center.
+    public var hardwareId: String
+    public var refreshToken: String?
+    public var accessToken: String?
+    public var accessTokenExpiry: Date?
+}
+
 // MARK: - Keychain Manager
 
 public actor KeychainManager {
     public static let shared = KeychainManager()
 
     private let service = "dev.simple-ring"
+    private let account = "session"
+    private var cached: StoredSession?
 
     private init() {}
 
-    // MARK: - Token Storage
-
-    public func saveRefreshToken(_ token: String) throws {
-        try save(key: "refresh_token", value: token)
-    }
-
-    public func getRefreshToken() throws -> String? {
-        try get(key: "refresh_token")
-    }
-
-    public func saveAccessToken(_ token: String, expiresIn: Int) throws {
-        try save(key: "access_token", value: token)
-        let expirationDate = Date().addingTimeInterval(TimeInterval(expiresIn))
-        try save(key: "access_token_expires", value: String(expirationDate.timeIntervalSince1970))
-    }
-
-    public func getAccessToken() throws -> String? {
-        // Check if token is expired
-        if let expiresString = try get(key: "access_token_expires"),
-           let expires = Double(expiresString) {
-            let expirationDate = Date(timeIntervalSince1970: expires)
-            if expirationDate < Date() {
-                // Token expired, remove it
-                try? delete(key: "access_token")
-                try? delete(key: "access_token_expires")
-                return nil
-            }
+    /// Returns the stored session, creating one (with a fresh hardware ID) on first use.
+    /// Reads the Keychain only once per launch.
+    public func load() throws -> StoredSession {
+        if let cached { return cached }
+        if let data = try read(), let session = try? JSONDecoder().decode(StoredSession.self, from: data) {
+            cached = session
+            return session
         }
-        return try get(key: "access_token")
+        let session = StoredSession(hardwareId: UUID().uuidString)
+        try save(session)
+        return session
     }
 
-    public func saveHardwareId(_ id: String) throws {
-        try save(key: "hardware_id", value: id)
-    }
-
-    public func getHardwareId() throws -> String {
-        if let existing = try get(key: "hardware_id") {
-            return existing
-        }
-        // Generate new hardware ID
-        let newId = UUID().uuidString
-        try save(key: "hardware_id", value: newId)
-        return newId
-    }
-
-    public func clearAll() throws {
-        try delete(key: "refresh_token")
-        try delete(key: "access_token")
-        try delete(key: "access_token_expires")
-    }
-
-    // MARK: - Generic Keychain Operations
-
-    private func save(key: String, value: String) throws {
-        guard let data = value.data(using: .utf8) else {
-            throw KeychainError.encodingFailed
-        }
-
-        // Try to delete existing item first
-        try? delete(key: key)
-
-        // Create access control that allows this app without prompting
-        var access: SecAccess?
-        var trustedApps: CFArray?
-
-        // Get the current application as a trusted app
-        var selfApp: SecTrustedApplication?
-        let selfStatus = SecTrustedApplicationCreateFromPath(nil, &selfApp)
-        if selfStatus == errSecSuccess, let app = selfApp {
-            trustedApps = [app] as CFArray
-        }
-
-        let accessStatus = SecAccessCreate(
-            "SimpleRing Keychain Access" as CFString,
-            trustedApps,
-            &access
-        )
-
-        var query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
-            kSecAttrAccount as String: key,
-            kSecValueData as String: data,
-            kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlock
-        ]
-
-        // Add access control if created successfully
-        if accessStatus == errSecSuccess, let access = access {
-            query[kSecAttrAccess as String] = access
-        }
-
-        let status = SecItemAdd(query as CFDictionary, nil)
-        guard status == errSecSuccess else {
-            throw KeychainError.saveFailed(status)
-        }
-    }
-
-    private func get(key: String) throws -> String? {
+    public func save(_ session: StoredSession) throws {
+        let data = try JSONEncoder().encode(session)
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
-            kSecAttrAccount as String: key,
+            kSecAttrAccount as String: account
+        ]
+        let status = SecItemUpdate(query as CFDictionary, [kSecValueData as String: data] as CFDictionary)
+        if status == errSecItemNotFound {
+            var add = query
+            add[kSecValueData as String] = data
+            add[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlock
+            let addStatus = SecItemAdd(add as CFDictionary, nil)
+            guard addStatus == errSecSuccess else { throw KeychainError.saveFailed(addStatus) }
+        } else if status != errSecSuccess {
+            throw KeychainError.saveFailed(status)
+        }
+        cached = session
+    }
+
+    private func read() throws -> Data? {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account,
             kSecReturnData as String: true,
             kSecMatchLimit as String: kSecMatchLimitOne
         ]
-
         var result: AnyObject?
         let status = SecItemCopyMatching(query as CFDictionary, &result)
-
         switch status {
-        case errSecSuccess:
-            guard let data = result as? Data,
-                  let string = String(data: data, encoding: .utf8) else {
-                throw KeychainError.decodingFailed
-            }
-            return string
-        case errSecItemNotFound:
-            return nil
-        default:
-            throw KeychainError.readFailed(status)
-        }
-    }
-
-    private func delete(key: String) throws {
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
-            kSecAttrAccount as String: key
-        ]
-
-        let status = SecItemDelete(query as CFDictionary)
-        guard status == errSecSuccess || status == errSecItemNotFound else {
-            throw KeychainError.deleteFailed(status)
+        case errSecSuccess: return result as? Data
+        case errSecItemNotFound: return nil
+        default: throw KeychainError.readFailed(status)
         }
     }
 }
@@ -150,24 +79,15 @@ public actor KeychainManager {
 // MARK: - Keychain Errors
 
 public enum KeychainError: Error, LocalizedError {
-    case encodingFailed
-    case decodingFailed
     case saveFailed(OSStatus)
     case readFailed(OSStatus)
-    case deleteFailed(OSStatus)
 
     public var errorDescription: String? {
         switch self {
-        case .encodingFailed:
-            return "Failed to encode data for keychain"
-        case .decodingFailed:
-            return "Failed to decode data from keychain"
         case .saveFailed(let status):
             return "Failed to save to keychain: \(status)"
         case .readFailed(let status):
             return "Failed to read from keychain: \(status)"
-        case .deleteFailed(let status):
-            return "Failed to delete from keychain: \(status)"
         }
     }
 }

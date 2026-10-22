@@ -1,407 +1,82 @@
 <h1 align="center">SimpleRing</h1>
 
 <p align="center">
-  <strong>An unofficial native macOS menu bar app for Ring doorbells and cameras</strong>
+  <strong>An unofficial, privacy-focused macOS menu bar app for Ring doorbells and cameras</strong>
 </p>
 
 <p align="center">
   <img src="https://img.shields.io/badge/platform-macOS%2014+-blue" alt="Platform">
-  <img src="https://img.shields.io/badge/swift-5.9+-orange" alt="Swift">
   <img src="https://img.shields.io/badge/license-MIT-green" alt="License">
 </p>
 
 ---
 
-SimpleRing brings your Ring devices to your Mac's menu bar. View live streams, get notifications, talk to visitors, and control your devices—all without opening a browser or phone app.
+SimpleRing puts your Ring devices in the Mac menu bar: live video, two-way audio, recent events and notifications, without a browser or your phone.
 
-This is a privacy-focused fork: it only talks to Ring's servers (to log in and stream your feed) and nothing else. All AI/Claude/Anthropic integration has been removed.
-
-## Why SimpleRing?
-
-Ring's official app is phone-first. There's no native Mac app, just a web dashboard that's clunky and slow. SimpleRing fixes that:
-
-- **Native performance** — Built with SwiftUI, feels like a first-party Apple app
-- **Menu bar access** — One click (or hotkey) to see your cameras
-- **Real-time streaming** — WebRTC video with sub-second latency, faster than the phone app
-- **Instant access** — No waiting for the Ring app to load—click and stream
-- **Privacy-focused** — Your credentials stay in Keychain, no telemetry, no third-party network calls
-
----
+It's a stripped-down fork of [open-ring](https://github.com/abracadabra50/open-ring) with one rule: **the app only talks to Ring.** No AI services, no analytics, no third-party servers — including for WebRTC, which uses Ring's own STUN server only.
 
 ## Features
 
-### Live Video Streaming
+- **Live video** — WebRTC streams from every camera, with instant switching (swipe, arrows or ⌘1–4)
+- **Push-to-talk** — hold the microphone button to talk to visitors
+- **Zoom** — scroll, +/−, or the zoom buttons (up to 4×); 0 resets
+- **Device controls** — floodlight and siren, where the device has them
+- **Events** — recent rings and motion, filterable; click one to play the recording and save it as MP4
+- **Notifications** — native alerts for new rings and motion, checked every 15 s – 2 min
+- **Resizable window** — drag any edge; expanding the events drawer grows the window instead of shrinking the video
 
-Stream video from any Ring device in real-time using WebRTC.
+## Install
 
-- **Multi-camera support** — Switch between cameras with swipe gestures or keyboard shortcuts (⌘1-4)
-- **Portrait mode** — Doorbells display in their native vertical orientation
-- **Zoom controls** — Use +/- keys or scroll to zoom in/out (1x-3x)
-- **Connection status** — Visual indicators for ICE/signaling state
-- **Auto-reconnect** — Handles network interruptions gracefully
-
-The video pipeline uses Ring's WebRTC infrastructure with proper ICE candidate handling and codec negotiation (H.264).
-
-### Push-to-Talk
-
-Two-way audio communication with visitors.
-
-- **Hold-to-talk** — Hold the microphone button to speak, release to listen
-- **Visual feedback** — Button animates to show when transmitting
-- **Low latency** — Audio streams via WebRTC alongside video
-
-### Device Controls
-
-Control your Ring devices directly from the app.
-
-| Control | Description | Devices |
-|---------|-------------|---------|
-| **Floodlight** | Toggle flood/spotlight on/off | Spotlight Cam, Floodlight Cam |
-| **Siren** | Activate 30-second alarm | Cameras with siren capability |
-| **Motion Detection** | Enable/disable motion alerts | All cameras |
-
-Controls appear contextually—doorbells won't show floodlight toggle since they don't have one.
-
-### Event Timeline
-
-Browse and play back recorded events.
-
-- **Filter chips** — View All, Ring (doorbell presses), or Motion events
-- **Inline playback** — Tap any event to play its recording without leaving the app
-- **Export** — Save any recording to disk (downloads MP4 from Ring's servers)
-- **Relative timestamps** — "2 min ago", "Yesterday at 3:42 PM"
-
-### Notifications
-
-Get alerted when something happens.
-
-- **Native macOS notifications** — Integrates with Notification Center
-- **Motion & ring alerts** — Separate toggles for each type
-- **Snooze** — Temporarily silence notifications
-- **Background polling** — Checks for new events every 15-120 seconds (configurable)
-
-### Keyboard Shortcuts
-
-| Shortcut | Action |
-|----------|--------|
-| **⌘`** | Open SimpleRing (global, works from any app) |
-| **⌘1-4** | Switch to camera 1/2/3/4 |
-| **+/-** | Zoom in/out |
-| **←/→** | Previous/next camera |
-| **Space** | Toggle push-to-talk |
-
-The global hotkey is customizable in Settings (⌘⇧R, ⌘⌥O, ⌃⌥Space, etc.).
-
-### Settings
-
-| Setting | Options | Default |
-|---------|---------|---------|
-| Polling interval | 15s, 30s, 60s, 2min | 30s |
-| Motion alerts | On/Off | On |
-| Notification sound | On/Off | On |
-| Global hotkey | ⌘`, ⌘⇧R, ⌘⌥O, ⌃⌥Space | ⌘` |
-| Show battery level | On/Off | On |
-
----
-
-## Installation
-
-### Download (Recommended)
-
-1. Go to [Releases](https://github.com/bcrulli/simple-ring/releases)
-2. Download `SimpleRing-x.x.x.dmg`
-3. Open the DMG and drag SimpleRing to Applications
-4. Launch from Applications (you may need to right-click → Open the first time)
-
-### Build from Source
+Build the `.dmg` and drag SimpleRing to Applications:
 
 ```bash
-# Clone the repository
-git clone https://github.com/bcrulli/simple-ring.git
-cd simple-ring/app
-
-# Open in Xcode
-open SimpleRing.xcworkspace
-
-# Build and run (⌘R)
+./scripts/build-dmg.sh
 ```
 
-**Requirements:**
-- Xcode 15.0+
-- macOS 14.0+ (Sonoma)
-- Swift 5.9+
+The app is ad-hoc signed, so the first time you open it: right-click SimpleRing in Applications → **Open** → **Open**.
 
----
+**Requirements:** macOS 14+, Xcode 15+.
 
-## First Launch
+## First launch
 
-1. **Login** — Enter your Ring email and password
-2. **2FA** — Ring will send an SMS code, enter it in the app
-3. **Grant Permissions:**
-   - **Notifications** — For motion/ring alerts
-   - **Accessibility** — For global hotkey (optional but recommended)
-4. **Done** — Your devices appear automatically
+1. Sign in with your Ring email and password (macOS can autofill saved passwords)
+2. Enter the verification code Ring sends you
+3. Allow notifications and, when you first use push-to-talk, the microphone
 
-Your credentials are stored in macOS Keychain. The app maintains a session token and refreshes it automatically.
+Your session is stored in a single macOS Keychain item and refreshed automatically.
 
----
+> **Keychain prompt after rebuilding:** each locally built copy is ad-hoc signed with a different signature, so macOS asks once whether the new build may read SimpleRing's Keychain item. Choose **Always Allow**. Signing with a stable identity (e.g. a free Apple Development certificate) makes the prompt go away for good.
 
-## Architecture
+## Network access
+
+| Host | Why |
+|------|-----|
+| `oauth.ring.com` | Sign in and refresh the session |
+| `api.ring.com` | Devices, events, recordings, device controls, live view signalling |
+| `stun.ring.com` | WebRTC NAT traversal for live video |
+| Ring media servers | The live video/audio stream itself (addresses supplied by Ring) |
+
+## Project layout
 
 ```
-simple-ring/
-├── app/
-│   ├── SimpleRing/                    # macOS app shell
-│   │   └── SimpleRingApp.swift        # App entry, MenuBarExtra, Settings
-│   │
-│   └── SimpleRingPackage/             # Swift Package with all modules
-│       │
-│       ├── Sources/
-│       │   ├── SimpleRingFeature/     # Main UI and features
-│       │   │   ├── PopoverView.swift
-│       │   │   ├── MultiStreamVideoView.swift
-│       │   │   ├── LoginView.swift
-│       │   │   ├── EventTimelinePanel.swift
-│       │   │   ├── DrawerPanel.swift
-│       │   │   ├── KeyboardShortcutManager.swift
-│       │   │   └── NotificationManager.swift
-│       │   │
-│       │   ├── RingClient/          # Ring API client (reusable)
-│       │   │   ├── RingClient.swift     # API methods
-│       │   │   ├── RingTypes.swift      # Data models
-│       │   │   ├── RingWebRTC.swift     # WebRTC session
-│       │   │   ├── LiveViewSession.swift
-│       │   │   └── KeychainManager.swift
-│       │   │
-│       │   ├── DesignSystem/        # UI components & tokens
-│       │   │   ├── Colors.swift
-│       │   │   ├── Typography.swift
-│       │   │   └── Components/
-│       │   │
-│       │   └── Storage/             # Local persistence (GRDB)
-│       │
-│       └── Package.swift
+app/
+├── SimpleRing/                  # App shell: status item, panel, settings, app state
+│   └── SimpleRingApp.swift
+├── SimpleRingPackage/
+│   └── Sources/
+│       ├── RingClient/          # Ring API, Keychain session, WebRTC live view
+│       ├── SimpleRingFeature/   # SwiftUI views, stream manager, Metal video renderer
+│       └── DesignSystem/        # Colors, fonts, spacing
+└── Config/                      # xcconfig + entitlements
+scripts/
+├── build-dmg.sh                 # Release build → .dmg
+└── make-icon.swift              # Renders the app icon
 ```
-
-### Key Modules
-
-**RingClient** — The Ring API wrapper. Handles:
-- OAuth2 authentication with 2FA
-- Device discovery (`/clients_api/ring_devices`)
-- Event history (`/clients_api/doorbots/{id}/history`)
-- Live streaming via WebRTC
-- Device controls (floodlight, siren, motion detection)
-
-**SimpleRingFeature** — All UI and app logic:
-- SwiftUI views for every screen
-- WebRTC video rendering with Metal
-- Notification handling
-- Keyboard shortcut management
-
-**DesignSystem** — Consistent styling:
-- Ring-inspired color palette
-- Typography scale
-- Reusable components (chips, buttons, cards)
-
----
-
-## RingClient API
-
-The `RingClient` module can be used independently in your own projects.
-
-### Authentication
-
-```swift
-import RingClient
-
-// Initial login (triggers 2FA)
-try await RingClient.shared.login(email: "you@example.com", password: "secret")
-
-// Complete 2FA
-try await RingClient.shared.verify2FA(code: "123456")
-
-// Session persists in Keychain
-// On subsequent launches:
-let restored = try await RingClient.shared.restoreSession()
-if restored {
-    // Good to go
-}
-
-// Logout
-try await RingClient.shared.logout()
-```
-
-### Devices
-
-```swift
-// Fetch all devices (doorbells, cameras, chimes)
-let devices = try await RingClient.shared.fetchDevices()
-
-for device in devices {
-    print("\(device.name) - \(device.deviceType)")
-    print("  Battery: \(device.batteryLevel ?? -1)%")
-    print("  Online: \(device.isOnline)")
-}
-```
-
-### Events
-
-```swift
-// Get recent events for all devices
-let events = try await RingClient.shared.fetchAllRecentEvents(limit: 20)
-
-for event in events {
-    print("\(event.kind.displayName) at \(event.createdAt)")
-    print("  Device: \(event.deviceName ?? "Unknown")")
-}
-
-// Get recording URL for an event
-let url = try await RingClient.shared.getEventVideoURL(eventId: event.id)
-```
-
-### Live Streaming
-
-```swift
-// Create a live view session
-let session = LiveViewSession(
-    device: device,
-    onVideoTrack: { track in
-        // Attach to your video view
-    },
-    onAudioTrack: { track in
-        // Handle audio
-    },
-    onConnectionState: { state in
-        print("WebRTC state: \(state)")
-    }
-)
-
-// Start streaming
-session.start()
-
-// Push-to-talk
-session.startTalking()
-session.stopTalking()
-
-// Stop
-session.stop()
-```
-
-### Device Controls
-
-```swift
-// Floodlight (for Spotlight/Floodlight cameras)
-try await RingClient.shared.setFloodlight(deviceId: device.id, enabled: true)
-
-// Siren (30-second alarm)
-try await RingClient.shared.setSiren(deviceId: device.id, enabled: true)
-
-// Motion detection
-try await RingClient.shared.setMotionDetection(deviceId: device.id, enabled: false)
-```
-
----
-
-## How It Works
-
-### Authentication Flow
-
-1. POST to Ring OAuth endpoint with email/password
-2. Ring responds with `tsv_state` indicating 2FA required
-3. User enters SMS code
-4. POST code + tsv_state to complete auth
-5. Receive `access_token` and `refresh_token`
-6. Tokens stored in Keychain
-7. Access token used in `Authorization: Bearer` header
-8. Refresh token used when access token expires
-
-### WebRTC Streaming
-
-1. Request live view ticket from Ring API
-2. Receive SDP offer and ICE servers
-3. Create local peer connection with answer
-4. Exchange ICE candidates via Ring's signaling
-5. Video track attached to `RTCMTLVideoView`
-6. Audio handled via WebRTC's audio session
-
----
-
-## Privacy & Security
-
-- **Credentials** — Stored in macOS Keychain, never on disk
-- **Network** — All traffic over HTTPS, and the app only talks to Ring's servers (login + live feed). No AI/third-party API calls of any kind.
-- **No Telemetry** — Zero analytics, tracking, or phone-home
-- **Open Source** — Audit the code yourself
-- **Local Only** — No cloud backend, speaks directly to Ring
-
----
-
-## Known Limitations
-
-- **No subscription management** — Can't change Ring Protect plan
-- **No device setup** — Add new devices via official app
-- **No geofencing** — Home/Away modes not implemented
-- **macOS only** — No iOS/Windows/Linux versions
-- **Ring account required** — Doesn't work with Ring alternatives
-
----
-
-## Troubleshooting
-
-**"Session expired" after closing app**
-- This is normal. Ring tokens expire. Re-login to refresh.
-
-**Video not loading**
-- Check your internet connection
-- Try a different device
-- Ring's servers occasionally have issues
-
-**Global hotkey not working**
-- Grant Accessibility permission in System Settings
-- Check if another app uses the same shortcut
-
-**2FA code not arriving**
-- Ring sends via SMS only
-- Check your phone number is correct in Ring account
-
----
-
-## Contributing
-
-Contributions welcome! Please:
-
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing`)
-3. Commit changes (`git commit -m 'Add amazing feature'`)
-4. Push to branch (`git push origin feature/amazing`)
-5. Open a Pull Request
-
-### Development Setup
-
-```bash
-git clone https://github.com/bcrulli/simple-ring.git
-cd simple-ring/app
-open SimpleRing.xcworkspace
-```
-
-The project uses Swift Package Manager. Dependencies are resolved automatically.
-
----
 
 ## Disclaimer
 
-**This is an unofficial app.** SimpleRing is not affiliated with, endorsed by, or connected to Ring LLC or Amazon.com, Inc. Ring is a trademark of Ring LLC. Use at your own risk.
-
-This app uses Ring's private API, which is undocumented and may change without notice. Ring could block access at any time.
-
----
+**This is an unofficial app.** SimpleRing is not affiliated with, endorsed by, or connected to Ring LLC or Amazon.com, Inc. Ring is a trademark of Ring LLC. It uses Ring's private, undocumented API, which may change or be blocked at any time. Use at your own risk.
 
 ## License
 
-MIT License. See [LICENSE](LICENSE) for details.
-
----
-
-<p align="center">
-  Built with SwiftUI and WebRTC
-</p>
+MIT — see [LICENSE](LICENSE).

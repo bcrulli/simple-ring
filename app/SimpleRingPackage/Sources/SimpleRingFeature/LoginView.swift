@@ -12,11 +12,6 @@ public struct LoginView: View {
     @State private var errorMessage: String?
     @State private var showTwoFactor = false
     @State private var twoFactorPrompt = ""
-    @State private var isEmailFocused = false
-    @State private var isPasswordFocused = false
-    @State private var isCodeFocused = false
-
-    @Environment(\.openSettings) private var openSettings
 
     let onLoginSuccess: () -> Void
 
@@ -106,7 +101,8 @@ public struct LoginView: View {
                 HStack {
                     // Settings button
                     Button {
-                        openSettings()
+                        NotificationCenter.default.post(name: .closeMenuBarWindow, object: nil)
+                        NotificationCenter.default.post(name: .openSettingsWindow, object: nil)
                     } label: {
                         Image(systemName: "gearshape")
                             .font(.system(size: 14))
@@ -122,10 +118,8 @@ public struct LoginView: View {
             }
             .padding(.horizontal, Spacing.xl)
         }
-        .frame(
-            minWidth: Layout.Popover.width, idealWidth: Layout.Popover.width, maxWidth: .infinity,
-            minHeight: 420, idealHeight: 480, maxHeight: .infinity
-        )
+        .frame(minWidth: 300, maxWidth: .infinity, minHeight: 420, maxHeight: .infinity)
+        .idealWindowSize(CGSize(width: 360, height: 500))
     }
 
     // MARK: - Login Form
@@ -141,7 +135,6 @@ public struct LoginView: View {
                 DarkTextField(
                     placeholder: "your@email.com",
                     text: $email,
-                    isFocused: $isEmailFocused,
                     icon: "envelope.fill"
                 )
                 .textContentType(.username)
@@ -157,7 +150,6 @@ public struct LoginView: View {
                 DarkSecureField(
                     placeholder: "Password",
                     text: $password,
-                    isFocused: $isPasswordFocused,
                     icon: "lock.fill"
                 )
                 .textContentType(.password)
@@ -236,7 +228,6 @@ public struct LoginView: View {
                 DarkTextField(
                     placeholder: "000000",
                     text: $twoFactorCode,
-                    isFocused: $isCodeFocused,
                     icon: "number",
                     isCode: true
                 )
@@ -367,7 +358,6 @@ public struct LoginView: View {
 private struct DarkTextField: View {
     let placeholder: String
     @Binding var text: String
-    @Binding var isFocused: Bool
     var icon: String? = nil
     var isCode: Bool = false
 
@@ -402,9 +392,6 @@ private struct DarkTextField: View {
                     lineWidth: 1
                 )
         )
-        .onChange(of: fieldFocused) { _, newValue in
-            isFocused = newValue
-        }
     }
 }
 
@@ -413,7 +400,6 @@ private struct DarkTextField: View {
 private struct DarkSecureField: View {
     let placeholder: String
     @Binding var text: String
-    @Binding var isFocused: Bool
     var icon: String? = nil
     @State private var isRevealed = false
 
@@ -462,9 +448,6 @@ private struct DarkSecureField: View {
                     lineWidth: 1
                 )
         )
-        .onChange(of: fieldFocused) { _, newValue in
-            isFocused = newValue
-        }
     }
 }
 

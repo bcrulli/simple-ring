@@ -52,7 +52,18 @@ public actor LiveViewSession {
     private let accessToken: String
     private let hardwareId: String
     private let session: URLSession
-    private let factory: RTCPeerConnectionFactory
+    private var factory: RTCPeerConnectionFactory { Self.sharedFactory }
+
+    /// One factory (and one SSL init) for the whole app. Creating a factory per
+    /// session and calling RTCCleanupSSL() in deinit tore down SSL for every
+    /// other camera that was still streaming.
+    private static let sharedFactory: RTCPeerConnectionFactory = {
+        RTCInitializeSSL()
+        return RTCPeerConnectionFactory(
+            encoderFactory: RTCDefaultVideoEncoderFactory(),
+            decoderFactory: RTCDefaultVideoDecoderFactory()
+        )
+    }()
 
     public var onStateChange: (@Sendable (State) -> Void)?
     public var onVideoTrack: (@Sendable (RTCVideoTrack) -> Void)?
@@ -81,19 +92,6 @@ public actor LiveViewSession {
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = 30
         self.session = URLSession(configuration: config)
-
-        // Initialize WebRTC
-        RTCInitializeSSL()
-        let encoderFactory = RTCDefaultVideoEncoderFactory()
-        let decoderFactory = RTCDefaultVideoDecoderFactory()
-        self.factory = RTCPeerConnectionFactory(
-            encoderFactory: encoderFactory,
-            decoderFactory: decoderFactory
-        )
-    }
-
-    deinit {
-        RTCCleanupSSL()
     }
 
     // MARK: - Public API
@@ -114,34 +112,18 @@ public actor LiveViewSession {
 
             try await setupPeerConnection()
             let localOffer = try await createOffer()
-            NSLog("📹 LiveView: Created local SDP offer")
 
             // Step 2: Send offer to Ring API and get answer
             state = .negotiating
             onStateChange?(.negotiating)
 
             let answerSdp = try await startLiveView(offerSdp: localOffer.sdp)
-            NSLog("📹 LiveView: Received SDP answer from Ring")
 
             // Step 3+4: Set remote description AND activate camera in parallel
             // activateCamera only needs sessionId (set at init), not remote description
             async let activationTask: () = activateCamera()
             try await setRemoteDescription(answerSdp)
-            NSLog("📹 LiveView: Set remote description")
             try await activationTask
-            NSLog("📹 LiveView: Camera activated (parallel)")
-
-            // Step 5: Wait for video track and start stats monitoring
-            // The delegate will call us when track arrives
-            NSLog("📹 LiveView: Waiting for video track...")
-
-            // Start a background task to periodically log stats
-            Task.detached { [weak self] in
-                for i in 1...10 {
-                    try? await Task.sleep(nanoseconds: 2_000_000_000) // 2 seconds
-                    await self?.logConnectionStats()
-                }
-            }
 
         } catch {
             NSLog("📹 LiveView: Failed to start: \(error)")
@@ -153,7 +135,6 @@ public actor LiveViewSession {
     }
 
     public func stop() async {
-        NSLog("📹 LiveView: Stopping session...")
 
         // End session on server
         do {
@@ -184,14 +165,12 @@ public actor LiveViewSession {
         }
         localAudioTrack?.isEnabled = true
         isTalking = true
-        NSLog("🎤 PTT: Microphone ENABLED - talking started")
     }
 
     /// Stop talking - disables microphone
     public func stopTalking() {
         localAudioTrack?.isEnabled = false
         isTalking = false
-        NSLog("🎤 PTT: Microphone DISABLED - talking stopped")
     }
 
     // MARK: - Ring Live View API
@@ -215,16 +194,11 @@ public actor LiveViewSession {
         ]
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
 
-        NSLog("📹 LiveView: session_id=\(sessionId), device_id=\(deviceId)")
-        NSLog("📹 LiveView: SDP length=\(offerSdp.count), first 200 chars: \(String(offerSdp.prefix(200)))")
-        NSLog("📹 LiveView: Sending offer to Ring API...")
         let (data, response) = try await session.data(for: request)
 
         guard let httpResponse = response as? HTTPURLResponse else {
             throw LiveViewError.networkError
         }
-
-        NSLog("📹 LiveView: API response: \(httpResponse.statusCode)")
 
         guard httpResponse.statusCode == 200 || httpResponse.statusCode == 201 else {
             if let responseText = String(data: data, encoding: .utf8) {
@@ -240,41 +214,6 @@ public actor LiveViewSession {
                 NSLog("📹 LiveView: Response: \(responseText)")
             }
             throw LiveViewError.invalidSessionResponse
-        }
-
-        // Log SDP answer for debugging (check for ICE candidates and media)
-        NSLog("📹 LiveView: SDP answer length: \(answerSdp.count)")
-
-        // Extract and log candidate info
-        let lines = answerSdp.components(separatedBy: "\r\n")
-        var candidateCount = 0
-        var hasRelay = false
-        var hasSrflx = false
-        var hasHost = false
-
-        for line in lines {
-            if line.starts(with: "a=candidate") {
-                candidateCount += 1
-                // Log every candidate to see the actual IPs
-                NSLog("📹 LiveView: Candidate: \(line)")
-                if line.contains("relay") || line.contains("typ relay") {
-                    hasRelay = true
-                } else if line.contains("srflx") || line.contains("typ srflx") {
-                    hasSrflx = true
-                } else if line.contains("host") || line.contains("typ host") {
-                    hasHost = true
-                }
-            }
-        }
-
-        NSLog("📹 LiveView: SDP has \(candidateCount) ICE candidates (host=\(hasHost), srflx=\(hasSrflx), relay=\(hasRelay))")
-
-        if !hasRelay {
-            NSLog("📹 LiveView: ⚠️ No TURN/relay candidates - NAT traversal may fail")
-        }
-
-        if answerSdp.contains("m=video") {
-            NSLog("📹 LiveView: SDP contains video media line")
         }
 
         return answerSdp
@@ -317,8 +256,6 @@ public actor LiveViewSession {
             "actions": ["turn_off_stealth_mode"]
         ]
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
-
-        NSLog("📹 LiveView: Activating camera (turn off stealth mode)...")
         let (data, response) = try await session.data(for: request)
 
         if let httpResponse = response as? HTTPURLResponse {
@@ -342,12 +279,8 @@ public actor LiveViewSession {
         config.iceTransportPolicy = .all  // Allow all transport types (UDP and TCP)
         config.tcpCandidatePolicy = .enabled  // Keep TCP enabled as fallback
 
-        // Log network interfaces for debugging
-        NSLog("📹 LiveView: Setting up peer connection with iceTransportPolicy=all, tcpCandidatePolicy=enabled")
-
-        // STUN servers for NAT traversal - use only 2 fastest (Google + Ring)
+        // Ring's STUN server only — no third-party (e.g. Google) network traffic.
         config.iceServers = [
-            RTCIceServer(urlStrings: ["stun:stun.l.google.com:19302"]),
             RTCIceServer(urlStrings: ["stun:stun.ring.com:3478"])
         ]
 
@@ -400,14 +333,11 @@ public actor LiveViewSession {
         if let sender = audioTransceiver?.sender {
             sender.track = localAudioTrack
         }
-        NSLog("🎤 LiveView: Audio track configured for push-to-talk")
 
         // Set up video transceiver for receiving only
         let videoTransceiverInit = RTCRtpTransceiverInit()
         videoTransceiverInit.direction = .recvOnly
         pc.addTransceiver(of: .video, init: videoTransceiverInit)
-
-        NSLog("📹 LiveView: Peer connection configured with transceivers")
     }
 
     private func createOffer() async throws -> RTCSessionDescription {
@@ -454,17 +384,6 @@ public actor LiveViewSession {
             throw LiveViewError.offerCreationFailed
         }
 
-        // Log our local candidates
-        let offerLines = localDescription.sdp.components(separatedBy: "\r\n")
-        var localCandidateCount = 0
-        for line in offerLines {
-            if line.starts(with: "a=candidate") {
-                localCandidateCount += 1
-                NSLog("📹 LiveView: OUR candidate: \(line)")
-            }
-        }
-        NSLog("📹 LiveView: Our offer has \(localCandidateCount) ICE candidates")
-
         return localDescription
     }
 
@@ -477,7 +396,6 @@ public actor LiveViewSession {
 
         while pc.iceGatheringState != .complete {
             if Date().timeIntervalSince(startTime) > timeout {
-                NSLog("📹 LiveView: ICE gathering timeout after \(timeout)s, proceeding with available candidates")
                 break
             }
 
@@ -485,15 +403,12 @@ public actor LiveViewSession {
             if let sdp = pc.localDescription?.sdp {
                 let candidateCount = sdp.components(separatedBy: "a=candidate").count - 1
                 if candidateCount >= 2 {
-                    NSLog("📹 LiveView: ICE early exit with \(candidateCount) candidates")
                     break
                 }
             }
 
             try await Task.sleep(nanoseconds: 100_000_000) // 100ms polling (faster)
         }
-
-        NSLog("📹 LiveView: ICE gathering state: \(pc.iceGatheringState.rawValue)")
     }
 
     private func setRemoteDescription(_ sdp: String) async throws {
@@ -520,7 +435,7 @@ public actor LiveViewSession {
     // MARK: - Track Handling
 
     private func handleVideoTrack(_ track: RTCVideoTrack) {
-        NSLog("📹 LiveView: Received video track from delegate!")
+        guard videoTrack !== track else { return }
         videoTrack = track
         onVideoTrack?(track)
         state = .connected
@@ -528,13 +443,11 @@ public actor LiveViewSession {
     }
 
     private func handleAudioTrack(_ track: RTCAudioTrack) {
-        NSLog("🔊 LiveView: Received audio track from delegate!")
-        // Audio tracks start enabled by default - the MultiStreamManager will mute non-active cameras
+        // Audio tracks start enabled - MultiStreamManager mutes non-active cameras
         onAudioTrack?(track)
     }
 
     private func handleIceConnectionStateChange(_ newState: RTCIceConnectionState) {
-        NSLog("📹 LiveView: ICE connection state: \(newState.rawValue)")
 
         switch newState {
         case .connected, .completed:
@@ -554,86 +467,20 @@ public actor LiveViewSession {
         }
     }
 
-    private func logConnectionStats() async {
-        guard let pc = peerConnection else { return }
-
-        NSLog("📹 Stats: ICE connection=\(pc.iceConnectionState.rawValue), signaling=\(pc.signalingState.rawValue)")
-
-        // Get stats using the callback-based API
-        pc.statistics { report in
-            for (_, stats) in report.statistics {
-                let statsType = stats.type
-                if statsType == "inbound-rtp" {
-                    if let values = stats.values as? [String: Any] {
-                        let kind = values["kind"] as? String ?? "unknown"
-                        let bytesReceived = values["bytesReceived"] as? Int64 ?? 0
-                        let packetsReceived = values["packetsReceived"] as? Int64 ?? 0
-                        let framesDecoded = values["framesDecoded"] as? Int64 ?? 0
-                        NSLog("📹 Stats inbound-rtp (\(kind)): bytes=\(bytesReceived), packets=\(packetsReceived), framesDecoded=\(framesDecoded)")
-                    }
-                } else if statsType == "candidate-pair" {
-                    if let values = stats.values as? [String: Any] {
-                        let state = values["state"] as? String ?? "unknown"
-                        let bytesReceived = values["bytesReceived"] as? Int64 ?? 0
-                        let bytesSent = values["bytesSent"] as? Int64 ?? 0
-                        let nominated = values["nominated"] as? Bool ?? false
-                        let localCandidateId = values["localCandidateId"] as? String ?? "?"
-                        let remoteCandidateId = values["remoteCandidateId"] as? String ?? "?"
-                        NSLog("📹 Stats candidate-pair: state=\(state), nominated=\(nominated), bytesRecv=\(bytesReceived), bytesSent=\(bytesSent), local=\(localCandidateId), remote=\(remoteCandidateId)")
-                    }
-                } else if statsType == "local-candidate" || statsType == "remote-candidate" {
-                    if let values = stats.values as? [String: Any] {
-                        let candidateType = values["candidateType"] as? String ?? "unknown"
-                        let protocol_ = values["protocol"] as? String ?? "?"
-                        let address = values["address"] as? String ?? values["ip"] as? String ?? "?"
-                        NSLog("📹 Stats \(statsType): type=\(candidateType), protocol=\(protocol_), address=\(address)")
-                    }
-                }
-            }
-        }
-    }
-
     private func checkForVideoTrack() {
-        guard let pc = peerConnection else { return }
-
-        // Log detailed transceiver info
-        NSLog("📹 LiveView: Checking transceivers (\(pc.transceivers.count) total):")
-        for (i, transceiver) in pc.transceivers.enumerated() {
-            let mediaType = transceiver.mediaType == .video ? "video" : "audio"
-            let direction = transceiver.direction.rawValue
-            let currentDir = transceiver.currentDirection
-            NSLog("📹   Transceiver \(i): type=\(mediaType), direction=\(direction), currentDirection=\(currentDir)")
-            let receiver = transceiver.receiver
-            if let track = receiver.track {
-                NSLog("📹     Receiver track: kind=\(track.kind), enabled=\(track.isEnabled), readyState=\(track.readyState.rawValue)")
-            } else {
-                NSLog("📹     Receiver has no track")
-            }
-        }
-
-        NSLog("📹 LiveView: Checking receivers (\(pc.receivers.count) total):")
-        for (i, receiver) in pc.receivers.enumerated() {
+        guard state != .connected, let pc = peerConnection else { return }
+        for receiver in pc.receivers {
             if let track = receiver.track as? RTCVideoTrack {
-                NSLog("📹 LiveView: Found video track in receiver \(i)! enabled=\(track.isEnabled), readyState=\(track.readyState.rawValue)")
-                videoTrack = track
-                onVideoTrack?(track)
-                state = .connected
-                onStateChange?(.connected)
+                handleVideoTrack(track)
                 return
-            } else if let track = receiver.track {
-                NSLog("📹   Receiver \(i): track kind=\(track.kind), enabled=\(track.isEnabled)")
-            } else {
-                NSLog("📹   Receiver \(i): no track")
             }
         }
-
-        NSLog("📹 LiveView: No video track yet, waiting for delegate callback...")
     }
 }
 
 // MARK: - Peer Connection Delegate
 
-private class PeerConnectionDelegate: NSObject, RTCPeerConnectionDelegate {
+private final class PeerConnectionDelegate: NSObject, RTCPeerConnectionDelegate {
     private let onVideoTrack: (RTCVideoTrack) -> Void
     private let onAudioTrack: (RTCAudioTrack) -> Void
     private let onIceConnectionChange: (RTCIceConnectionState) -> Void
@@ -649,72 +496,7 @@ private class PeerConnectionDelegate: NSObject, RTCPeerConnectionDelegate {
         super.init()
     }
 
-    func peerConnection(_ peerConnection: RTCPeerConnection, didChange stateChanged: RTCSignalingState) {
-        NSLog("📹 WebRTC: Signaling state: \(stateChanged.rawValue)")
-    }
-
-    func peerConnection(_ peerConnection: RTCPeerConnection, didAdd stream: RTCMediaStream) {
-        NSLog("📹 WebRTC: Added stream with \(stream.videoTracks.count) video, \(stream.audioTracks.count) audio tracks")
-        if let videoTrack = stream.videoTracks.first {
-            onVideoTrack(videoTrack)
-        }
-        if let audioTrack = stream.audioTracks.first {
-            onAudioTrack(audioTrack)
-        }
-    }
-
-    func peerConnection(_ peerConnection: RTCPeerConnection, didRemove stream: RTCMediaStream) {
-        NSLog("📹 WebRTC: Removed stream")
-    }
-
-    func peerConnectionShouldNegotiate(_ peerConnection: RTCPeerConnection) {
-        NSLog("📹 WebRTC: Should negotiate")
-    }
-
-    func peerConnection(_ peerConnection: RTCPeerConnection, didChange newState: RTCIceConnectionState) {
-        let stateName: String
-        switch newState {
-        case .new: stateName = "new"
-        case .checking: stateName = "checking"
-        case .connected: stateName = "connected"
-        case .completed: stateName = "completed"
-        case .failed: stateName = "FAILED"
-        case .disconnected: stateName = "disconnected"
-        case .closed: stateName = "closed"
-        case .count: stateName = "count"
-        @unknown default: stateName = "unknown(\(newState.rawValue))"
-        }
-        NSLog("📹 WebRTC: ICE connection state changed to: \(stateName) (rawValue=\(newState.rawValue))")
-        onIceConnectionChange(newState)
-    }
-
-    func peerConnection(_ peerConnection: RTCPeerConnection, didChange newState: RTCIceGatheringState) {
-        NSLog("📹 WebRTC: ICE gathering state: \(newState.rawValue)")
-    }
-
-    func peerConnection(_ peerConnection: RTCPeerConnection, didGenerate candidate: RTCIceCandidate) {
-        // Parse candidate type and protocol
-        let sdp = candidate.sdp
-        let isUdp = sdp.contains(" udp ") || sdp.contains(" UDP ")
-        let isTcp = sdp.contains(" tcp ") || sdp.contains(" TCP ")
-        let isSrflx = sdp.contains("typ srflx")
-        let isHost = sdp.contains("typ host")
-        let isRelay = sdp.contains("typ relay")
-        let typeStr = isSrflx ? "srflx" : (isRelay ? "relay" : (isHost ? "host" : "unknown"))
-        let protoStr = isUdp ? "UDP" : (isTcp ? "TCP" : "?")
-        NSLog("📹 WebRTC: Generated ICE candidate [\(protoStr)/\(typeStr)]: \(candidate.sdp)")
-    }
-
-    func peerConnection(_ peerConnection: RTCPeerConnection, didRemove candidates: [RTCIceCandidate]) {
-        NSLog("📹 WebRTC: Removed \(candidates.count) ICE candidates")
-    }
-
-    func peerConnection(_ peerConnection: RTCPeerConnection, didOpen dataChannel: RTCDataChannel) {
-        NSLog("📹 WebRTC: Opened data channel")
-    }
-
     func peerConnection(_ peerConnection: RTCPeerConnection, didAdd rtpReceiver: RTCRtpReceiver, streams mediaStreams: [RTCMediaStream]) {
-        NSLog("📹 WebRTC: Added RTP receiver, track kind: \(rtpReceiver.track?.kind ?? "unknown")")
         if let videoTrack = rtpReceiver.track as? RTCVideoTrack {
             onVideoTrack(videoTrack)
         } else if let audioTrack = rtpReceiver.track as? RTCAudioTrack {
@@ -722,9 +504,18 @@ private class PeerConnectionDelegate: NSObject, RTCPeerConnectionDelegate {
         }
     }
 
-    func peerConnection(_ peerConnection: RTCPeerConnection, didRemove rtpReceiver: RTCRtpReceiver) {
-        NSLog("📹 WebRTC: Removed RTP receiver")
+    func peerConnection(_ peerConnection: RTCPeerConnection, didChange newState: RTCIceConnectionState) {
+        onIceConnectionChange(newState)
     }
+
+    func peerConnection(_ peerConnection: RTCPeerConnection, didChange stateChanged: RTCSignalingState) {}
+    func peerConnection(_ peerConnection: RTCPeerConnection, didAdd stream: RTCMediaStream) {}
+    func peerConnection(_ peerConnection: RTCPeerConnection, didRemove stream: RTCMediaStream) {}
+    func peerConnectionShouldNegotiate(_ peerConnection: RTCPeerConnection) {}
+    func peerConnection(_ peerConnection: RTCPeerConnection, didChange newState: RTCIceGatheringState) {}
+    func peerConnection(_ peerConnection: RTCPeerConnection, didGenerate candidate: RTCIceCandidate) {}
+    func peerConnection(_ peerConnection: RTCPeerConnection, didRemove candidates: [RTCIceCandidate]) {}
+    func peerConnection(_ peerConnection: RTCPeerConnection, didOpen dataChannel: RTCDataChannel) {}
 }
 
 // MARK: - Errors
@@ -736,9 +527,6 @@ public enum LiveViewError: Error, LocalizedError {
     case invalidSessionResponse
     case peerConnectionNotReady
     case offerCreationFailed
-    case answerCreationFailed
-    case encodingError
-    case timeout
 
     public var errorDescription: String? {
         switch self {
@@ -754,12 +542,6 @@ public enum LiveViewError: Error, LocalizedError {
             return "Peer connection not ready"
         case .offerCreationFailed:
             return "Failed to create SDP offer"
-        case .answerCreationFailed:
-            return "Failed to create SDP answer"
-        case .encodingError:
-            return "Encoding error"
-        case .timeout:
-            return "Connection timeout"
         }
     }
 }

@@ -82,12 +82,13 @@ public struct RingDevice: Codable, Identifiable, Sendable {
         case "chime", "chime_pro", "chime_pro_v2", "chime_v2":
             return .chime
         default:
+            // Ring keeps adding model codes; fall back on naming conventions
+            let lower = kind.lowercased()
+            if lower.contains("chime") { return .chime }
+            if lower.contains("doorbell") || lower.hasPrefix("lpd") { return .doorbell }
+            if lower.contains("cam") || lower.contains("floodlight") || lower.contains("spotlight") { return .camera }
             return .unknown
         }
-    }
-
-    public var isOnline: Bool {
-        alerts?.connection != "offline"
     }
 
     public var batteryLevel: Int? {
@@ -110,11 +111,6 @@ public struct RingDevice: Codable, Identifiable, Sendable {
         kind.lowercased().contains("stickup") ||
         kind.lowercased().contains("floodlight") ||
         kind.lowercased().contains("spotlight")
-    }
-
-    /// Whether motion detection is currently enabled
-    public var isMotionDetectionEnabled: Bool {
-        settings?.motionDetectionEnabled ?? true
     }
 }
 
@@ -226,24 +222,21 @@ public struct RingEvent: Decodable, Identifiable, Sendable {
         // id can be Int64 or String
         if let intId = try? container.decode(Int64.self, forKey: .id) {
             id = String(intId)
-        } else if let stringId = try? container.decode(String.self, forKey: .id) {
-            id = stringId
         } else {
-            id = UUID().uuidString
+            id = try container.decode(String.self, forKey: .id)
         }
 
-        // Handle date parsing - ISO8601 string
+        // An unparseable date falls back to the distant past, never "now" -
+        // otherwise the event would look brand new and trigger a notification.
         if let dateString = try? container.decode(String.self, forKey: .createdAt) {
-            let formatter = ISO8601DateFormatter()
-            formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-            createdAt = formatter.date(from: dateString) ?? Date()
+            createdAt = Self.parseDate(dateString) ?? .distantPast
         } else if let timestamp = try? container.decode(Double.self, forKey: .createdAt) {
             createdAt = Date(timeIntervalSince1970: timestamp / 1000)
         } else {
-            createdAt = Date()
+            createdAt = .distantPast
         }
 
-        kind = try container.decode(EventKind.self, forKey: .kind)
+        kind = (try? container.decode(EventKind.self, forKey: .kind)) ?? .other
         favorite = try container.decodeIfPresent(Bool.self, forKey: .favorite) ?? false
 
         // deviceName is nested under doorbot.description
@@ -253,67 +246,36 @@ public struct RingEvent: Decodable, Identifiable, Sendable {
             deviceName = nil
         }
     }
+
+    private nonisolated(unsafe) static let fractionalFormatter: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter
+    }()
+
+    private nonisolated(unsafe) static let plainFormatter = ISO8601DateFormatter()
+
+    private static func parseDate(_ string: String) -> Date? {
+        fractionalFormatter.date(from: string) ?? plainFormatter.date(from: string)
+    }
 }
 
 public enum EventKind: String, Codable, Sendable {
     case ding
     case motion
     case onDemand = "on_demand"
+    /// Any kind this app doesn't know about (Ring adds new ones over time).
+    /// Decoding one must not throw, or the whole device's history is dropped.
+    case other
 
     public var displayName: String {
         switch self {
         case .ding: return "Ring press"
         case .motion: return "Motion detected"
         case .onDemand: return "Live view"
+        case .other: return "Event"
         }
     }
-}
-
-public struct EventsResponse: Decodable, Sendable {
-    public let events: [RingEvent]
-}
-
-// MARK: - Session Types
-
-public struct SessionResponse: Codable, Sendable {
-    public let profile: UserProfile
-}
-
-public struct UserProfile: Codable, Sendable {
-    public let id: Int
-    public let email: String
-    public let firstName: String?
-    public let lastName: String?
-
-    enum CodingKeys: String, CodingKey {
-        case id
-        case email
-        case firstName = "first_name"
-        case lastName = "last_name"
-    }
-}
-
-// MARK: - Location Types
-
-public struct RingLocation: Codable, Identifiable, Sendable {
-    public let id: String
-    public let name: String
-
-    enum CodingKeys: String, CodingKey {
-        case id = "location_id"
-        case name
-    }
-}
-
-// MARK: - Empty Response (for PUT commands)
-
-public struct EmptyResponse: Decodable, Sendable {
-    // Handles empty responses or responses with any JSON
-    public init(from decoder: Decoder) throws {
-        // Accept any response, including empty
-    }
-
-    public init() {}
 }
 
 // MARK: - Devices Response

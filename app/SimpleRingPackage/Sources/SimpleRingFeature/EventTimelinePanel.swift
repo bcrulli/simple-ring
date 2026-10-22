@@ -41,7 +41,12 @@ public struct EventTimelinePanel: View {
             if isLoadingVideo {
                 videoLoadingView
             } else if let videoURL = playingVideoURL {
-                historyVideoPlayer(url: videoURL)
+                RecordingPlayer(
+                    url: videoURL,
+                    onSave: { saveVideo(from: videoURL) },
+                    onClose: { playingVideoURL = nil }
+                )
+                .id(videoURL)
             }
         }
         .padding(.horizontal, Spacing.md)
@@ -66,51 +71,6 @@ public struct EventTimelinePanel: View {
         .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
     }
 
-    // MARK: - History Video Player
-
-    private func historyVideoPlayer(url: URL) -> some View {
-        ZStack(alignment: .topTrailing) {
-            VideoPlayer(player: AVPlayer(url: url))
-                .frame(height: 120)
-                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-                .onAppear {
-                    // Auto-play
-                    let player = AVPlayer(url: url)
-                    player.play()
-                }
-
-            // Overlay buttons
-            HStack(spacing: 6) {
-                // Save button
-                Button {
-                    saveVideo(from: url)
-                } label: {
-                    Image(systemName: "square.and.arrow.down.fill")
-                        .font(.system(size: 16))
-                        .foregroundStyle(.white.opacity(0.8))
-                        .frame(width: 28, height: 28)
-                        .background(Color.black.opacity(0.5))
-                        .clipShape(Circle())
-                }
-                .buttonStyle(.plain)
-                .help("Save video")
-
-                // Close button
-                Button {
-                    playingVideoURL = nil
-                } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .font(.system(size: 20))
-                        .foregroundStyle(.white.opacity(0.8))
-                        .background(Color.black.opacity(0.5))
-                        .clipShape(Circle())
-                }
-                .buttonStyle(.plain)
-            }
-            .padding(6)
-        }
-    }
-
     // MARK: - Save Video
 
     private func saveVideo(from url: URL) {
@@ -120,6 +80,7 @@ public struct EventTimelinePanel: View {
         savePanel.nameFieldStringValue = "ring_event_\(dateFormatter.string(from: Date())).mp4"
         savePanel.title = "Save Recording"
         savePanel.message = "Choose a location to save the Ring event recording"
+        savePanel.level = .modalPanel  // above the floating menu bar panel
 
         savePanel.begin { result in
             if result == .OK, let destinationURL = savePanel.url {
@@ -129,7 +90,6 @@ public struct EventTimelinePanel: View {
                         try FileManager.default.removeItem(at: destinationURL)
                     }
                     try FileManager.default.copyItem(at: url, to: destinationURL)
-                    NSLog("📥 Saved video to: \(destinationURL.path)")
                 } catch {
                     NSLog("❌ Failed to save video: \(error)")
                 }
@@ -142,6 +102,53 @@ public struct EventTimelinePanel: View {
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyy-MM-dd_HHmmss"
         return formatter
+    }
+}
+
+// MARK: - Recording Player
+
+/// Holds a single AVPlayer for the recording and autoplays it.
+private struct RecordingPlayer: View {
+    let url: URL
+    let onSave: () -> Void
+    let onClose: () -> Void
+
+    @State private var player: AVPlayer?
+
+    var body: some View {
+        ZStack(alignment: .topTrailing) {
+            VideoPlayer(player: player)
+                .frame(height: 120)
+                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+
+            HStack(spacing: 6) {
+                overlayButton("square.and.arrow.down", help: "Save video", action: onSave)
+                overlayButton("xmark", help: "Close", action: onClose)
+            }
+            .padding(6)
+        }
+        .onAppear {
+            let player = AVPlayer(url: url)
+            self.player = player
+            player.play()
+        }
+        .onDisappear {
+            player?.pause()
+            player = nil
+        }
+    }
+
+    private func overlayButton(_ systemName: String, help: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: systemName)
+                .font(.system(size: 11, weight: .bold))
+                .foregroundStyle(.white.opacity(0.9))
+                .frame(width: 26, height: 26)
+                .background(Color.black.opacity(0.55))
+                .clipShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .help(help)
     }
 }
 
@@ -273,6 +280,7 @@ private struct EventChip: View {
         case .ding: return "Ring"
         case .motion: return "Motion"
         case .onDemand: return "Live"
+        case .other: return "Event"
         }
     }
 

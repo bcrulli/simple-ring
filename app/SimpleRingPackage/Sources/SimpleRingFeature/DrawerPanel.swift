@@ -3,10 +3,14 @@ import SwiftUI
 // MARK: - Drawer Panel
 // A collapsible drawer with a 3x3 grid handle and curved bottom edges
 
+public enum DrawerMetrics {
+    public static let handleHeight: CGFloat = 20
+}
+
 public struct DrawerPanel<Content: View>: View {
     @Binding var isExpanded: Bool
 
-    private let handleHeight: CGFloat = 20
+    private let handleHeight = DrawerMetrics.handleHeight
     private let expandedHeight: CGFloat
     private let cornerRadius: CGFloat = 16
     private let content: () -> Content
@@ -72,11 +76,9 @@ public struct DrawerPanel<Content: View>: View {
         .frame(maxWidth: .infinity)
         .contentShape(Rectangle())
         .onTapGesture {
-            NSLog("🔔 Drawer handle tapped! Current state: \(isExpanded), toggling...")
             withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
                 isExpanded.toggle()
             }
-            NSLog("🔔 Drawer new state: \(isExpanded)")
         }
     }
 }

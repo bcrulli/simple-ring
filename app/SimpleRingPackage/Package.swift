@@ -9,21 +9,15 @@ let package = Package(
         .library(name: "SimpleRingFeature", targets: ["SimpleRingFeature"]),
         .library(name: "DesignSystem", targets: ["DesignSystem"]),
         .library(name: "RingClient", targets: ["RingClient"]),
-        .library(name: "Storage", targets: ["Storage"]),
     ],
     dependencies: [
-        .package(url: "https://github.com/groue/GRDB.swift.git", from: "7.0.0"),
-        .package(url: "https://github.com/nicklockwood/SwiftFormat.git", from: "0.49.0"),
         .package(url: "https://github.com/stasel/WebRTC.git", from: "125.0.0"),
     ],
     targets: [
-        // Design System - colors, typography, components
-        .target(
-            name: "DesignSystem",
-            dependencies: []
-        ),
+        // Design tokens and small shared views
+        .target(name: "DesignSystem"),
 
-        // Ring API Client
+        // Ring API client and WebRTC live view
         .target(
             name: "RingClient",
             dependencies: [
@@ -31,22 +25,10 @@ let package = Package(
             ]
         ),
 
-        // Local Storage (SQLite via GRDB)
-        .target(
-            name: "Storage",
-            dependencies: [
-                .product(name: "GRDB", package: "GRDB.swift")
-            ]
-        ),
-
-        // Main Feature module
+        // App UI
         .target(
             name: "SimpleRingFeature",
-            dependencies: [
-                "DesignSystem",
-                "RingClient",
-                "Storage"
-            ]
+            dependencies: ["DesignSystem", "RingClient"]
         ),
 
         .testTarget(

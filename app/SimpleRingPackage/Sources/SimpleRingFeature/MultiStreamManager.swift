@@ -2,13 +2,11 @@ import Foundation
 import RingClient
 @preconcurrency import WebRTC
 
-/// Manages multiple simultaneous WebRTC streams for all cameras
+/// Manages simultaneous WebRTC streams for all cameras
 @MainActor
-public class MultiStreamManager: ObservableObject {
+public final class MultiStreamManager: ObservableObject {
 
-    public struct StreamInfo: Identifiable {
-        public let id: Int  // Device ID
-        public let deviceName: String
+    public struct StreamInfo {
         public var session: LiveViewSession?
         public var videoTrack: RTCVideoTrack?
         public var audioTrack: RTCAudioTrack?
@@ -16,188 +14,134 @@ public class MultiStreamManager: ObservableObject {
         public var error: String?
     }
 
-    @Published public var streams: [Int: StreamInfo] = [:]
-    @Published public var isConnecting = false
-    @Published public var activeDeviceId: Int?  // Currently active device (audio plays from this one)
+    @Published public private(set) var streams: [Int: StreamInfo] = [:]
+    @Published public private(set) var isConnecting = false
+    @Published public private(set) var activeDeviceId: Int?  // Audio plays from this device only
+    @Published public private(set) var isMuted = false
 
-    private var devices: [RingDevice] = []
+    /// Bumped on every start/stop so a session that finishes connecting after
+    /// the window closed is stopped instead of streaming in the background.
+    private var generation = 0
 
     public init() {}
 
     /// Start streams for all provided devices
     public func startAllStreams(for devices: [RingDevice]) async {
-        self.devices = devices
+        generation += 1
+        let currentGeneration = generation
         isConnecting = true
+        streams = Dictionary(uniqueKeysWithValues: devices.map { ($0.id, StreamInfo(state: .connecting)) })
 
-        // Initialize stream info for all devices
-        for device in devices {
-            streams[device.id] = StreamInfo(
-                id: device.id,
-                deviceName: device.name
-            )
-        }
-
-        // Start all streams concurrently
         await withTaskGroup(of: Void.self) { group in
             for device in devices {
-                group.addTask {
-                    await self.startStream(for: device)
-                }
+                group.addTask { await self.startStream(for: device, generation: currentGeneration) }
             }
         }
 
-        isConnecting = false
+        if generation == currentGeneration {
+            isConnecting = false
+        }
     }
 
-    /// Start a single stream
-    private func startStream(for device: RingDevice) async {
-        guard var streamInfo = streams[device.id] else { return }
-
-        streamInfo.state = .connecting
-        streams[device.id] = streamInfo
-
+    private func startStream(for device: RingDevice, generation startedIn: Int) async {
+        let id = device.id
         do {
-            let session = try await RingClient.shared.startLiveView(deviceId: device.id)
+            let session = try await RingClient.shared.startLiveView(deviceId: id)
+            guard generation == startedIn else { return }
+            streams[id]?.session = session
 
-            streamInfo.session = session
-            streams[device.id] = streamInfo
-
-            // Set up callbacks
             await session.setCallbacks(
                 onStateChange: { [weak self] state in
                     Task { @MainActor in
-                        guard let self = self else { return }
-                        if var info = self.streams[device.id] {
-                            info.state = state
-                            if case .failed(let msg) = state {
-                                info.error = msg
-                            }
-                            self.streams[device.id] = info
+                        guard let self, self.generation == startedIn else { return }
+                        self.streams[id]?.state = state
+                        if case .failed(let message) = state {
+                            self.streams[id]?.error = message
                         }
                     }
                 },
                 onVideoTrack: { [weak self] track in
                     Task { @MainActor in
-                        guard let self = self else { return }
-                        if var info = self.streams[device.id] {
-                            info.videoTrack = track
-                            self.streams[device.id] = info
-                            NSLog("📹 MultiStreamManager: Got video track for \(device.name)")
-                        }
+                        guard let self, self.generation == startedIn else { return }
+                        self.streams[id]?.videoTrack = track
                     }
                 },
                 onAudioTrack: { [weak self] track in
                     Task { @MainActor in
-                        guard let self = self else { return }
-                        if var info = self.streams[device.id] {
-                            info.audioTrack = track
-                            // Mute if not the active device
-                            let shouldMute = self.activeDeviceId != device.id
-                            track.isEnabled = !shouldMute
-                            self.streams[device.id] = info
-                            NSLog("🔊 MultiStreamManager: Got audio track for \(device.name), muted=\(shouldMute)")
-                        }
+                        guard let self, self.generation == startedIn else { return }
+                        track.isEnabled = self.activeDeviceId == id && !self.isMuted
+                        self.streams[id]?.audioTrack = track
                     }
                 }
             )
 
-            // Start the session
             try await session.start()
-            NSLog("📹 MultiStreamManager: Started stream for \(device.name)")
 
-        } catch {
-            NSLog("❌ MultiStreamManager: Failed to start stream for \(device.name): \(error)")
-            if var info = streams[device.id] {
-                info.state = .failed(error.localizedDescription)
-                info.error = error.localizedDescription
-                streams[device.id] = info
+            // The window may have closed (or devices changed) while connecting
+            if generation != startedIn {
+                await session.stop()
             }
+        } catch {
+            guard generation == startedIn else { return }
+            NSLog("❌ Failed to start stream for \(device.name): \(error.localizedDescription)")
+            streams[id]?.state = .failed(error.localizedDescription)
+            streams[id]?.error = error.localizedDescription
         }
     }
 
     /// Stop all streams
     public func stopAllStreams() async {
-        NSLog("📹 MultiStreamManager: Stopping all streams")
-        for (deviceId, streamInfo) in streams {
-            if let session = streamInfo.session {
-                await session.stop()
-            }
-            streams[deviceId]?.videoTrack = nil
-            streams[deviceId]?.session = nil
-        }
+        generation += 1
+        isConnecting = false
+        let sessions = streams.values.compactMap(\.session)
         streams.removeAll()
+        await withTaskGroup(of: Void.self) { group in
+            for session in sessions {
+                group.addTask { await session.stop() }
+            }
+        }
     }
 
-    /// Get video track for a specific device
     public func getVideoTrack(for deviceId: Int) -> RTCVideoTrack? {
-        return streams[deviceId]?.videoTrack
+        streams[deviceId]?.videoTrack
     }
 
-    /// Get connection state for a specific device
     public func getState(for deviceId: Int) -> LiveViewSession.State {
-        return streams[deviceId]?.state ?? .idle
+        streams[deviceId]?.state ?? .idle
     }
 
-    /// Get error message for a specific device
     public func getError(for deviceId: Int) -> String? {
-        return streams[deviceId]?.error
+        streams[deviceId]?.error
     }
 
-    /// Check if a device has an active video track
-    public func hasVideoTrack(for deviceId: Int) -> Bool {
-        return streams[deviceId]?.videoTrack != nil
-    }
+    // MARK: - Audio
 
-    // MARK: - Active Device (Audio Control)
-
-    /// Set the active device - only this device's audio will play
+    /// Only the active device's audio plays
     public func setActiveDevice(_ deviceId: Int) {
         guard activeDeviceId != deviceId else { return }
-
-        NSLog("🔊 MultiStreamManager: Switching audio to device \(deviceId)")
         activeDeviceId = deviceId
-
-        // Mute all other devices, unmute the active one
-        for (id, streamInfo) in streams {
-            if let audioTrack = streamInfo.audioTrack {
-                let shouldEnable = (id == deviceId)
-                audioTrack.isEnabled = shouldEnable
-                NSLog("🔊   Device \(streamInfo.deviceName): audio \(shouldEnable ? "ON" : "OFF")")
-            }
-        }
+        applyAudioState()
     }
 
-    /// Mute/unmute the active device's incoming audio
+    /// Mute/unmute incoming audio (persists when switching cameras)
     public func setMuted(_ muted: Bool) {
-        guard let activeId = activeDeviceId,
-              let audioTrack = streams[activeId]?.audioTrack else { return }
-        audioTrack.isEnabled = !muted
-        NSLog("🔊 MultiStreamManager: Active device audio \(muted ? "MUTED" : "UNMUTED")")
+        isMuted = muted
+        applyAudioState()
+    }
+
+    private func applyAudioState() {
+        for (id, info) in streams {
+            info.audioTrack?.isEnabled = (id == activeDeviceId) && !isMuted
+        }
     }
 
     // MARK: - Push-to-Talk
 
-    /// Start talking on a specific device
     public func startTalking(for deviceId: Int) async {
-        guard let session = streams[deviceId]?.session else {
-            NSLog("🎤 MultiStreamManager: No session for device \(deviceId)")
-            return
-        }
-        await session.startTalking()
+        await streams[deviceId]?.session?.startTalking()
     }
 
-    /// Stop talking on a specific device
     public func stopTalking(for deviceId: Int) async {
-        guard let session = streams[deviceId]?.session else {
-            NSLog("🎤 MultiStreamManager: No session for device \(deviceId)")
-            return
-        }
-        await session.stopTalking()
-    }
-
-    /// Check if currently talking on a device
-    public func isTalking(for deviceId: Int) async -> Bool {
-        guard let session = streams[deviceId]?.session else { return false }
-        return await session.isTalking
+        await streams[deviceId]?.session?.stopTalking()
     }
 }

@@ -19,9 +19,7 @@ public final class NotificationManager: NSObject, UNUserNotificationCenterDelega
     public func requestPermission() async -> Bool {
         do {
             let center = UNUserNotificationCenter.current()
-            let granted = try await center.requestAuthorization(options: [.alert, .sound, .badge])
-            NSLog("🔔 Notification permission: \(granted ? "granted" : "denied")")
-            return granted
+            return try await center.requestAuthorization(options: [.alert, .sound])
         } catch {
             NSLog("🔔 Notification permission error: \(error)")
             return false
@@ -37,14 +35,15 @@ public final class NotificationManager: NSObject, UNUserNotificationCenterDelega
         case .ding:
             content.title = "Ring"
             content.body = "Someone at \(event.deviceName ?? "your door")"
-            content.sound = .default
         case .motion:
             content.title = "Motion"
             content.body = "Movement at \(event.deviceName ?? "your camera")"
-            content.sound = .default
-        case .onDemand:
-            // Don't notify for on-demand (live view) events
+        case .onDemand, .other:
             return
+        }
+        let soundEnabled = UserDefaults.standard.object(forKey: "notificationSound") as? Bool ?? true
+        if soundEnabled {
+            content.sound = .default
         }
 
         // Add event ID to userInfo for potential click handling
@@ -59,8 +58,6 @@ public final class NotificationManager: NSObject, UNUserNotificationCenterDelega
         do {
             let center = UNUserNotificationCenter.current()
             try await center.add(request)
-            NSLog("🔔 Sent notification for \(event.kind.displayName) at \(event.deviceName ?? "unknown")")
-
             // Mark as seen
             markEventAsSeen(event.id)
         } catch {
@@ -90,17 +87,16 @@ public final class NotificationManager: NSObject, UNUserNotificationCenterDelega
     // MARK: - Seen Events Persistence
 
     private func getSeenEventIds() -> Set<String> {
-        let array = UserDefaults.standard.stringArray(forKey: seenEventsKey) ?? []
-        return Set(array)
+        Set(UserDefaults.standard.stringArray(forKey: seenEventsKey) ?? [])
     }
 
     private func markEventAsSeen(_ eventId: String) {
-        var seen = getSeenEventIds()
-        seen.insert(eventId)
-
-        // Keep only last 100 events to prevent unbounded growth
-        let array = Array(seen.suffix(100))
-        UserDefaults.standard.set(array, forKey: seenEventsKey)
+        // Ordered oldest -> newest so trimming drops the oldest IDs
+        // (a Set has no order, so trimming it dropped arbitrary IDs)
+        var seen = UserDefaults.standard.stringArray(forKey: seenEventsKey) ?? []
+        seen.removeAll { $0 == eventId }
+        seen.append(eventId)
+        UserDefaults.standard.set(Array(seen.suffix(100)), forKey: seenEventsKey)
     }
 
     // MARK: - Delegate Methods
@@ -119,8 +115,8 @@ public final class NotificationManager: NSObject, UNUserNotificationCenterDelega
         _ center: UNUserNotificationCenter,
         didReceive response: UNNotificationResponse
     ) async {
-        let eventId = response.notification.request.content.userInfo["eventId"] as? String
-        NSLog("🔔 Notification tapped for event: \(eventId ?? "unknown")")
-        // TODO: Could open popover and show specific event
+        await MainActor.run {
+            NotificationCenter.default.post(name: .showMenuBarWindow, object: nil)
+        }
     }
 }
