@@ -21,9 +21,9 @@ It's a stripped-down fork of [open-ring](https://github.com/abracadabra50/open-r
 - **Sound and talk** — sound is off by default; the speaker and mic buttons toggle instantly, and the microphone is only open while you're talking
 - **Zoom** — scroll, +/−, or the zoom buttons (up to 4×); 0 resets
 - **Device controls** — floodlight and siren, where the device has them
-- **Events** — recent rings and motion grouped by day, filterable; click one to play its recording full size and save it as MP4
+- **Events** — a day-grouped list with recording playback exists but is hidden for now (`PopoverView.showsEvents`)
 - **Notifications** — native alerts for new rings and motion, checked every 15 s – 2 min
-- **Sized to the video** — the window matches each camera's aspect ratio (no black bars) and keeps it while you drag an edge
+- **Just the video** — the window matches each camera's aspect ratio exactly (no black bars) and keeps it while you drag an edge
 
 ## Install
 

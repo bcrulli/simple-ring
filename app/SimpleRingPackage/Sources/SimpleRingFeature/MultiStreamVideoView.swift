@@ -356,6 +356,10 @@ public struct MultiStreamVideoView: View {
 
             deviceControlButtons
 
+            glassButton("gearshape.fill", size: 28, help: "Settings") {
+                NotificationCenter.default.post(name: .openSettingsWindow, object: nil)
+            }
+
             glassButton("xmark", size: 28, help: "Close") {
                 onClose()
             }

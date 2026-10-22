@@ -38,7 +38,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     private let cornerRadius: CGFloat = 14
 
-    private let panelMinSize = NSSize(width: 300, height: 320)
+    private let panelMinSize = NSSize(width: 300, height: 160)
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)

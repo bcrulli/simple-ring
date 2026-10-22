@@ -16,6 +16,10 @@ public struct PopoverView: View {
 
     @AppStorage("drawerExpanded") private var isDrawerExpanded = true
 
+    /// The events drawer (list + recording playback) is hidden for now, leaving
+    /// a window that is just the live video. Set to true to bring it back.
+    private static let showsEvents = false
+
     private let drawerExpandedHeight: CGFloat = 230
 
     // Filter to only cameras and doorbells (not chimes)
@@ -42,7 +46,8 @@ public struct PopoverView: View {
     }
 
     private var drawerVisibleHeight: CGFloat {
-        isDrawerExpanded ? drawerExpandedHeight : DrawerMetrics.handleHeight
+        guard Self.showsEvents else { return 0 }
+        return isDrawerExpanded ? drawerExpandedHeight : DrawerMetrics.handleHeight
     }
 
     /// Window layout: the video area at the camera's real aspect ratio (known
@@ -91,15 +96,14 @@ public struct PopoverView: View {
                     .frame(maxHeight: .infinity)
                     .animation(.easeInOut(duration: 0.2), value: recording?.event.id)
 
-                    DrawerPanel(isExpanded: $isDrawerExpanded, expandedHeight: drawerExpandedHeight) {
-                        EventsPanel(
-                            events: events,
-                            selectedEventId: recording?.event.id,
-                            onSelect: play
-                        )
-                    }
-                    .overlay(alignment: .topTrailing) {
-                        settingsButton
+                    if Self.showsEvents {
+                        DrawerPanel(isExpanded: $isDrawerExpanded, expandedHeight: drawerExpandedHeight) {
+                            EventsPanel(
+                                events: events,
+                                selectedEventId: recording?.event.id,
+                                onSelect: play
+                            )
+                        }
                     }
                 }
             } else {
@@ -112,7 +116,7 @@ public struct PopoverView: View {
                 }
             }
         }
-        .frame(minWidth: 300, maxWidth: .infinity, minHeight: 320, maxHeight: .infinity)
+        .frame(minWidth: 300, maxWidth: .infinity, minHeight: 160, maxHeight: .infinity)
         .windowLayout(layout)
         // (Re)starts streams when the window opens or the cameras change (on
         // launch the view can appear before devices load); stops them on hide.
@@ -127,23 +131,6 @@ public struct PopoverView: View {
         .onDisappear {
             Task { await streamManager.stopAllStreams() }
         }
-    }
-
-    // MARK: - Settings Button (sits on the drawer handle row)
-
-    private var settingsButton: some View {
-        Button {
-            NotificationCenter.default.post(name: .openSettingsWindow, object: nil)
-        } label: {
-            Image(systemName: "gearshape.fill")
-                .font(.system(size: 11))
-                .foregroundStyle(.white.opacity(0.4))
-                .frame(width: 28, height: DrawerMetrics.handleHeight)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .padding(.trailing, Spacing.sm)
-        .help("Settings")
     }
 
     // MARK: - Recordings
