@@ -37,6 +37,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     /// starts at the default size that fits the video exactly).
     private var userWidth: CGFloat?
 
+    /// When the panel was last hidden by a click elsewhere / app switch.
+    private var lastAutoHide: Date?
+
     private let cornerRadius: CGFloat = 14
 
     private let panelMinSize = NSSize(width: 300, height: 160)
@@ -146,6 +149,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private func togglePanel() {
         if let panel, panel.isVisible {
             hidePanel()
+        } else if let lastAutoHide, Date().timeIntervalSince(lastAutoHide) < 0.5 {
+            // The menu bar icon lives in a system process, so clicking it can
+            // count as a click outside the app: that already closed the panel on
+            // mouse-down, and this mouse-up must not reopen it.
+            self.lastAutoHide = nil
         } else {
             showPanel()
         }
@@ -176,7 +184,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     /// Hide on click-away / app switch — but not on the sign-in screen, so you
     /// can switch to your password manager without losing the window.
     private func autoHidePanel() {
-        guard appState.authState == .authenticated else { return }
+        guard appState.authState == .authenticated, panel?.isVisible == true else { return }
+        lastAutoHide = Date()
         hidePanel()
     }
 
