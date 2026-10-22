@@ -41,7 +41,7 @@ public actor RingClient {
             _ = try await refreshAccessToken()
             return true
         } catch {
-            NSLog("🔑 Session restore failed: \(error.localizedDescription)")
+            ringLog.notice("🔑 Session restore failed: \(error.localizedDescription, privacy: .public)")
             return false
         }
     }
@@ -292,7 +292,7 @@ public actor RingClient {
                     do {
                         return try await self.get("doorbots/\(id)/history?limit=\(limit)")
                     } catch {
-                        NSLog("⚠️ Failed to fetch events for device \(id): \(error.localizedDescription)")
+                        ringLog.error("⚠️ Failed to fetch events for device \(id, privacy: .public): \(error.localizedDescription, privacy: .public)")
                         return []
                     }
                 }

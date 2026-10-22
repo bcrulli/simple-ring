@@ -490,7 +490,7 @@ public struct MultiStreamVideoView: View {
                 try await RingClient.shared.setFloodlight(deviceId: device.id, enabled: newState)
                 isFloodlightOn = newState
             } catch {
-                NSLog("❌ Failed to toggle floodlight: \(error)")
+                ringLog.error("❌ Failed to toggle floodlight: \(String(describing: error), privacy: .public)")
             }
             isControlLoading = false
         }
@@ -513,7 +513,7 @@ public struct MultiStreamVideoView: View {
                     }
                 }
             } catch {
-                NSLog("❌ Failed to toggle siren: \(error)")
+                ringLog.error("❌ Failed to toggle siren: \(String(describing: error), privacy: .public)")
                 isControlLoading = false
             }
         }

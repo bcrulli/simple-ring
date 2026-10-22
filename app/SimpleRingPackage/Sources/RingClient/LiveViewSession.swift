@@ -118,7 +118,7 @@ public actor LiveViewSession {
 
         state = .connecting
         onStateChange?(.connecting)
-        NSLog("📹 LiveView: Starting live session for device \(deviceId)")
+        ringLog.notice("📹 LiveView: Starting live session for device \(self.deviceId, privacy: .public)")
 
         do {
             // Step 1: Create peer connection and local offer
@@ -141,7 +141,7 @@ public actor LiveViewSession {
             try await activationTask
 
         } catch {
-            NSLog("📹 LiveView: Failed to start: \(error)")
+            ringLog.error("📹 LiveView: Failed to start: \(String(describing: error), privacy: .public)")
             let errorMsg = error.localizedDescription
             state = .failed(errorMsg)
             onStateChange?(.failed(errorMsg))
@@ -155,7 +155,7 @@ public actor LiveViewSession {
         do {
             try await endLiveView()
         } catch {
-            NSLog("📹 LiveView: Failed to end session: \(error)")
+            ringLog.error("📹 LiveView: Failed to end session: \(String(describing: error), privacy: .public)")
         }
 
         peerConnection?.close()
@@ -216,7 +216,7 @@ public actor LiveViewSession {
 
         guard httpResponse.statusCode == 200 || httpResponse.statusCode == 201 else {
             if let responseText = String(data: data, encoding: .utf8) {
-                NSLog("📹 LiveView: Error response: \(responseText)")
+                ringLog.error("📹 LiveView: Error response: \(responseText, privacy: .public)")
             }
             throw LiveViewError.sessionCreationFailed(httpResponse.statusCode)
         }
@@ -225,7 +225,7 @@ public actor LiveViewSession {
         guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
               let answerSdp = json["sdp"] as? String else {
             if let responseText = String(data: data, encoding: .utf8) {
-                NSLog("📹 LiveView: Response: \(responseText)")
+                ringLog.notice("📹 LiveView: Response: \(responseText, privacy: .public)")
             }
             throw LiveViewError.invalidSessionResponse
         }
@@ -250,7 +250,7 @@ public actor LiveViewSession {
         let (_, response) = try await session.data(for: request)
 
         if let httpResponse = response as? HTTPURLResponse {
-            NSLog("📹 LiveView: End session response: \(httpResponse.statusCode)")
+            ringLog.notice("📹 LiveView: End session response: \(httpResponse.statusCode, privacy: .public)")
         }
     }
 
@@ -273,10 +273,10 @@ public actor LiveViewSession {
         let (data, response) = try await session.data(for: request)
 
         if let httpResponse = response as? HTTPURLResponse {
-            NSLog("📹 LiveView: Activate camera response: \(httpResponse.statusCode)")
+            ringLog.notice("📹 LiveView: Activate camera response: \(httpResponse.statusCode, privacy: .public)")
             if httpResponse.statusCode != 200 && httpResponse.statusCode != 204 {
                 if let responseText = String(data: data, encoding: .utf8) {
-                    NSLog("📹 LiveView: Activate camera error: \(responseText)")
+                    ringLog.error("📹 LiveView: Activate camera error: \(responseText, privacy: .public)")
                 }
             }
         }
@@ -333,24 +333,20 @@ public actor LiveViewSession {
             throw LiveViewError.peerConnectionNotReady
         }
 
-        // Audio m-line is always present (Ring expects it); its direction
-        // decides whether any audio device gets used.
+        // Always offer two-way audio: Ring refuses other offers (e.g. inactive
+        // audio). The audio mode is applied to Ring's answer instead - see
+        // `applyAudioMode(_:to:)`.
         let audioTransceiverInit = RTCRtpTransceiverInit()
+        audioTransceiverInit.direction = .sendRecv
         audioTransceiverInit.streamIds = ["stream0"]
-        switch audioMode {
-        case .off: audioTransceiverInit.direction = .inactive
-        case .listen: audioTransceiverInit.direction = .recvOnly
-        case .talk: audioTransceiverInit.direction = .sendRecv
-        }
         let audioTransceiver = pc.addTransceiver(of: .audio, init: audioTransceiverInit)
-
+        audioSender = audioTransceiver?.sender
+        // No track attached until talking: WebRTC opens the microphone
+        // whenever a track is attached, even a disabled one.
+        audioSender?.track = nil
         if audioMode == .talk {
             let audioSource = factory.audioSource(with: RTCMediaConstraints(mandatoryConstraints: nil, optionalConstraints: nil))
             localAudioTrack = factory.audioTrack(with: audioSource, trackId: "audio0")
-            // No track attached until talking: WebRTC opens the microphone
-            // whenever a track is attached, even a disabled one.
-            audioSender = audioTransceiver?.sender
-            audioSender?.track = nil
         }
 
         // Set up video transceiver for receiving only
@@ -364,9 +360,10 @@ public actor LiveViewSession {
             throw LiveViewError.peerConnectionNotReady
         }
 
-        // No legacy OfferToReceive* constraints: with unified plan they force
-        // transceivers to receive, which would override the audio mode.
-        let constraints = RTCMediaConstraints(mandatoryConstraints: nil, optionalConstraints: nil)
+        let constraints = RTCMediaConstraints(
+            mandatoryConstraints: ["OfferToReceiveVideo": "true", "OfferToReceiveAudio": "true"],
+            optionalConstraints: nil
+        )
 
         let offer = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<RTCSessionDescription, Error>) in
             pc.offer(for: constraints) { sdp, error in
@@ -431,7 +428,7 @@ public actor LiveViewSession {
             throw LiveViewError.peerConnectionNotReady
         }
 
-        let answer = RTCSessionDescription(type: .answer, sdp: sdp)
+        let answer = RTCSessionDescription(type: .answer, sdp: Self.applyAudioMode(audioMode, to: sdp))
 
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             pc.setRemoteDescription(answer) { error in
@@ -445,6 +442,29 @@ public actor LiveViewSession {
 
         // Check if we already have a video track
         checkForVideoTrack()
+    }
+
+    /// Narrows the audio direction in Ring's answer to what this session wants.
+    /// Answer directions are from Ring's side: `inactive` means no audio either
+    /// way (no audio device is used at all), `sendonly` means Ring sends and we
+    /// only play it. For talk mode the answer is used as-is.
+    static func applyAudioMode(_ mode: AudioMode, to sdp: String) -> String {
+        let direction: String
+        switch mode {
+        case .off: direction = "a=inactive"
+        case .listen: direction = "a=sendonly"
+        case .talk: return sdp
+        }
+        let directions: Set<String> = ["a=sendrecv", "a=sendonly", "a=recvonly", "a=inactive"]
+        var inAudio = false
+        let lines = sdp.components(separatedBy: "\n").map { rawLine -> String in
+            let hasCR = rawLine.hasSuffix("\r")
+            let line = hasCR ? String(rawLine.dropLast()) : rawLine
+            if line.hasPrefix("m=") { inAudio = line.hasPrefix("m=audio") }
+            guard inAudio, directions.contains(line) else { return rawLine }
+            return hasCR ? direction + "\r" : direction
+        }
+        return lines.joined(separator: "\n")
     }
 
     // MARK: - Track Handling

@@ -84,11 +84,14 @@ public final class MultiStreamManager: ObservableObject {
             let session: LiveViewSession
             do {
                 session = try await startSession(for: id, mode: mode, attempt: attempt)
-            } catch LiveViewError.sessionCreationFailed(_) where mode == .off,
-                    LiveViewError.invalidSessionResponse where mode == .off {
-                // Fallback in case Ring ever refuses a video-only session
-                mode = .listen
-                streams[id]?.audioMode = .listen
+            } catch where mode == .off && !(error is CancellationError) {
+                // Last resort: connect with Ring's answer untouched (two-way
+                // audio), which is known to work, rather than not at all.
+                ringLog.notice("⚠️ Video-only session failed (\(error.localizedDescription, privacy: .public)); retrying with audio")
+                guard streams[id]?.attempt == attempt else { return }
+                mode = .talk
+                streams[id]?.audioMode = .talk
+                streams[id]?.state = .connecting
                 session = try await startSession(for: id, mode: mode, attempt: attempt)
             }
 
@@ -107,7 +110,7 @@ public final class MultiStreamManager: ObservableObject {
             return
         } catch {
             guard streams[id]?.attempt == attempt else { return }
-            NSLog("❌ Failed to start stream for \(device.name): \(error.localizedDescription)")
+            ringLog.error("❌ Failed to start stream for \(device.name, privacy: .public): \(error.localizedDescription, privacy: .public)")
             streams[id]?.state = .failed(error.localizedDescription)
             streams[id]?.error = error.localizedDescription
         }

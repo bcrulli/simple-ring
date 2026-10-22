@@ -21,7 +21,7 @@ public final class NotificationManager: NSObject, UNUserNotificationCenterDelega
             let center = UNUserNotificationCenter.current()
             return try await center.requestAuthorization(options: [.alert, .sound])
         } catch {
-            NSLog("🔔 Notification permission error: \(error)")
+            ringLog.error("🔔 Notification permission error: \(String(describing: error), privacy: .public)")
             return false
         }
     }
@@ -61,7 +61,7 @@ public final class NotificationManager: NSObject, UNUserNotificationCenterDelega
             // Mark as seen
             markEventAsSeen(event.id)
         } catch {
-            NSLog("🔔 Failed to send notification: \(error)")
+            ringLog.error("🔔 Failed to send notification: \(String(describing: error), privacy: .public)")
         }
     }
 

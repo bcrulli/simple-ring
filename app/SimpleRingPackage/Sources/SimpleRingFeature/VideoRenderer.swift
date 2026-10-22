@@ -1,6 +1,7 @@
 import SwiftUI
 import MetalKit
 import CoreVideo
+import RingClient
 @preconcurrency import WebRTC
 
 // MARK: - WebRTC Video View
@@ -281,7 +282,7 @@ final class MetalVideoView: NSView {
             }
             return (try pipeline("nv12Fragment"), try pipeline("bgraFragment"))
         } catch {
-            NSLog("📹 Failed to create Metal pipelines: \(error)")
+            ringLog.error("📹 Failed to create Metal pipelines: \(String(describing: error), privacy: .public)")
             return nil
         }
     }

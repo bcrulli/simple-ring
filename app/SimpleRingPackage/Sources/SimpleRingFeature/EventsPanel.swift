@@ -352,7 +352,7 @@ struct RecordingOverlay: View {
                 }
                 try FileManager.default.copyItem(at: url, to: destination)
             } catch {
-                NSLog("❌ Failed to save recording: \(error.localizedDescription)")
+                ringLog.error("❌ Failed to save recording: \(error.localizedDescription, privacy: .public)")
             }
         }
     }
