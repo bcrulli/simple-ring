@@ -94,12 +94,6 @@ public struct MultiStreamVideoView: View {
                 connectionPlaceholder
             }
 
-            // Zoom indicator (when zoomed in, auto-hide with overlay)
-            if zoomScale > 1.0 {
-                zoomIndicator
-                    .opacity(controlsVisible ? 1 : 0)
-            }
-
             // Overlay controls (auto-hide when not hovering)
             VStack {
                 // Top bar
@@ -299,45 +293,6 @@ public struct MultiStreamVideoView: View {
             }
     }
 
-    // MARK: - Zoom Indicator
-
-    private var zoomIndicator: some View {
-        VStack {
-            Spacer()
-            HStack {
-                // Zoom level badge
-                HStack(spacing: 4) {
-                    Image(systemName: "magnifyingglass")
-                        .font(.system(size: 10))
-                    Text(String(format: "%.1fx", zoomScale))
-                        .font(.system(size: 11, weight: .medium))
-                }
-                .foregroundStyle(.white)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 4)
-                .background(.black.opacity(0.6))
-                .clipShape(Capsule())
-
-                // Reset zoom button
-                Button {
-                    resetZoom()
-                } label: {
-                    Image(systemName: "arrow.counterclockwise")
-                        .font(.system(size: 10, weight: .bold))
-                        .foregroundStyle(.white)
-                        .frame(width: 24, height: 24)
-                        .background(.black.opacity(0.6))
-                        .clipShape(Circle())
-                }
-                .buttonStyle(.plain)
-
-                Spacer()
-            }
-            .padding(.leading, Spacing.md)
-            .padding(.bottom, 100)  // Above bottom controls
-        }
-    }
-
     // MARK: - Connection Placeholder
 
     private var connectionPlaceholder: some View {
@@ -489,7 +444,7 @@ public struct MultiStreamVideoView: View {
     // MARK: - Bottom Controls
 
     private var bottomControls: some View {
-        ZStack {
+        ZStack(alignment: .bottom) {
             // Speaker and mic, centred and the same size
             HStack(spacing: Spacing.lg) {
                 GlassButton(
@@ -513,14 +468,7 @@ public struct MultiStreamVideoView: View {
 
             HStack {
                 Spacer()
-                VStack(spacing: Spacing.sm) {
-                    glassButton("plus.magnifyingglass", size: 30, help: "Zoom in") { zoomIn() }
-                        .disabled(zoomScale >= maxZoom)
-                        .opacity(zoomScale < maxZoom ? 1 : 0.4)
-                    glassButton("minus.magnifyingglass", size: 30, help: "Zoom out") { zoomOut() }
-                        .disabled(zoomScale <= minZoom)
-                        .opacity(zoomScale > minZoom ? 1 : 0.4)
-                }
+                zoomControls
             }
         }
         .padding(.horizontal, Spacing.md)
@@ -530,6 +478,43 @@ public struct MultiStreamVideoView: View {
             LinearGradient(colors: [.clear, .black.opacity(0.7)], startPoint: .top, endPoint: .bottom)
                 .allowsHitTesting(false)
         )
+    }
+
+    // Lower-right zoom cluster: − and + side by side; when zoomed in, the zoom
+    // level and a reset button appear just above them.
+    private var zoomControls: some View {
+        VStack(alignment: .trailing, spacing: Spacing.xs) {
+            if zoomScale > minZoom {
+                Button(action: resetZoom) {
+                    HStack(spacing: 4) {
+                        Text(String(format: "%.1f×", zoomScale))
+                            .font(.system(size: 11, weight: .semibold).monospacedDigit())
+                        Image(systemName: "arrow.counterclockwise")
+                            .font(.system(size: 9, weight: .bold))
+                    }
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(.ultraThinMaterial, in: Capsule())
+                    .environment(\.colorScheme, .dark)
+                }
+                .buttonStyle(.plain)
+                .help("Reset zoom")
+                .transition(.opacity.combined(with: .scale(scale: 0.9, anchor: .bottomTrailing)))
+            }
+
+            HStack(spacing: Spacing.xs) {
+                glassButton("minus.magnifyingglass", size: 30, help: "Zoom out") { zoomOut() }
+                    .disabled(zoomScale <= minZoom)
+                    .opacity(zoomScale > minZoom ? 1 : 0.4)
+                glassButton("plus.magnifyingglass", size: 30, help: "Zoom in") { zoomIn() }
+                    .disabled(zoomScale >= maxZoom)
+                    .opacity(zoomScale < maxZoom ? 1 : 0.4)
+            }
+        }
+        // Keep the − + row level with the centre of the speaker/mic buttons
+        .padding(.bottom, 8)
+        .animation(.easeOut(duration: 0.15), value: zoomScale > minZoom)
     }
 
     private func glassButton(
