@@ -47,6 +47,7 @@ credentials.json
 
 # Archives
 *.xcarchive
+*.dmg
 
 # Playgrounds
 timeline.xctimeline
