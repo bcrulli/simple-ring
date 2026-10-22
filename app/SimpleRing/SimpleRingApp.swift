@@ -79,12 +79,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         item.button?.target = self
         item.button?.action = #selector(statusItemClicked)
+        item.button?.sendAction(on: [.leftMouseUp, .rightMouseUp])
         statusItem = item
         updateIcon(for: appState.menuBarState)
     }
 
     @objc private func statusItemClicked() {
-        togglePanel()
+        let event = NSApp.currentEvent
+        if event?.type == .rightMouseUp || event?.modifierFlags.contains(.control) == true {
+            showStatusMenu()
+        } else {
+            togglePanel()
+        }
+    }
+
+    /// Right-click (or Control-click) menu on the menu bar icon
+    private func showStatusMenu() {
+        guard let button = statusItem.button else { return }
+        let menu = NSMenu()
+        let settings = NSMenuItem(title: "Settings…", action: #selector(openSettingsFromMenu), keyEquivalent: ",")
+        settings.target = self
+        menu.addItem(settings)
+        menu.addItem(.separator())
+        let quit = NSMenuItem(title: "Quit SimpleRing", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        quit.target = NSApp
+        menu.addItem(quit)
+        menu.popUp(positioning: nil, at: NSPoint(x: 0, y: button.bounds.height + 5), in: button)
+    }
+
+    @objc private func openSettingsFromMenu() {
+        showSettings()
     }
 
     private func observeMenuBarState() {
