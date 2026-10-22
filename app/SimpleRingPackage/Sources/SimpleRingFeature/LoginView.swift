@@ -16,6 +16,8 @@ public struct LoginView: View {
     @State private var isPasswordFocused = false
     @State private var isCodeFocused = false
 
+    @Environment(\.openSettings) private var openSettings
+
     let onLoginSuccess: () -> Void
 
     public init(onLoginSuccess: @escaping () -> Void) {
@@ -102,9 +104,9 @@ public struct LoginView: View {
 
                 // Footer
                 HStack {
-                    // Settings button (left)
+                    // Settings button
                     Button {
-                        NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
+                        openSettings()
                     } label: {
                         Image(systemName: "gearshape")
                             .font(.system(size: 14))
@@ -114,25 +116,16 @@ public struct LoginView: View {
                     .help("Settings")
 
                     Spacer()
-
-                    // App name (center)
-                    Text("simple-ring")
-                        .font(.system(size: 11, weight: .medium, design: .monospaced))
-                        .foregroundStyle(.white.opacity(0.3))
-
-                    Spacer()
-
-                    // Placeholder for balance (right) - invisible to center the text
-                    Image(systemName: "gearshape")
-                        .font(.system(size: 14))
-                        .foregroundStyle(.clear)
                 }
                 .padding(.horizontal, Spacing.lg)
                 .padding(.bottom, Spacing.md)
             }
             .padding(.horizontal, Spacing.xl)
         }
-        .frame(width: Layout.Popover.width, height: 480)
+        .frame(
+            minWidth: Layout.Popover.width, idealWidth: Layout.Popover.width, maxWidth: .infinity,
+            minHeight: 420, idealHeight: 480, maxHeight: .infinity
+        )
     }
 
     // MARK: - Login Form
@@ -151,7 +144,7 @@ public struct LoginView: View {
                     isFocused: $isEmailFocused,
                     icon: "envelope.fill"
                 )
-                .textContentType(.emailAddress)
+                .textContentType(.username)
                 .disabled(isLoading)
             }
 

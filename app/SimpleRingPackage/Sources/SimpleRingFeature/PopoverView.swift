@@ -21,14 +21,11 @@ public struct PopoverView: View {
     @State private var isLoadingVideo = false
     @StateObject private var streamManager = MultiStreamManager()
 
+    @Environment(\.openSettings) private var openSettings
+
     // Drawer state
     @State private var isDrawerExpanded = true
     @AppStorage("drawerExpanded") private var drawerExpandedPref = true
-
-    // Window scale factor (persisted)
-    @AppStorage("windowScale") private var windowScale: Double = 1.0
-    private let minScale: Double = 0.75
-    private let maxScale: Double = 2.0
 
     // Filter to only cameras and doorbells (not chimes)
     private var videoDevices: [RingDevice] {
@@ -56,59 +53,22 @@ public struct PopoverView: View {
         playingVideoURL != nil || isLoadingVideo ? 320 : 200
     }
 
-    // Calculate popover size - use max size (drawer expanded) since MenuBarExtra can't resize
-    private var popoverSize: CGSize {
-        let scale = CGFloat(windowScale)
+    // Ideal popover size when the window first opens; the window itself is
+    // resizable from here on (see WindowConfigurator), so this is just a
+    // starting point, not a hard constraint.
+    private var idealSize: CGSize {
         if showLiveView, let device = selectedDevice {
-            // Always use expanded drawer height since window can't resize
             let drawerHeight: CGFloat = drawerExpandedHeight
-
             switch device.deviceType {
             case .doorbell:
-                // Portrait doorbell: 340x500 video + drawer + footer
-                return CGSize(width: 340 * scale, height: (500 + drawerHeight + footerHeight) * scale)
+                return CGSize(width: 340, height: 500 + drawerHeight + footerHeight)
             case .camera:
-                // Landscape camera: 480x270 video + drawer + footer
-                return CGSize(width: 480 * scale, height: (270 + drawerHeight + footerHeight) * scale)
+                return CGSize(width: 480, height: 270 + drawerHeight + footerHeight)
             default:
-                return CGSize(width: 400 * scale, height: (300 + drawerHeight + footerHeight) * scale)
+                return CGSize(width: 400, height: 300 + drawerHeight + footerHeight)
             }
         } else {
-            // Default menu view
-            return CGSize(width: 280 * scale, height: 500 * scale)
-        }
-    }
-
-    // Scale functions
-    private func scaleUp() {
-        withAnimation(.easeOut(duration: 0.2)) {
-            windowScale = min(maxScale, windowScale + 0.25)
-        }
-    }
-
-    private func scaleDown() {
-        withAnimation(.easeOut(duration: 0.2)) {
-            windowScale = max(minScale, windowScale - 0.25)
-        }
-    }
-
-    private func resetScale() {
-        withAnimation(.easeOut(duration: 0.2)) {
-            windowScale = 1.0
-        }
-    }
-
-    // Video height (without drawer panel, with scale applied)
-    private var videoHeight: CGFloat {
-        let scale = CGFloat(windowScale)
-        guard let device = selectedDevice else { return 400 * scale }
-        switch device.deviceType {
-        case .doorbell:
-            return 500 * scale
-        case .camera:
-            return 270 * scale
-        default:
-            return 300 * scale
+            return CGSize(width: 280, height: 500)
         }
     }
 
@@ -127,15 +87,14 @@ public struct PopoverView: View {
                             devices: videoDevices,
                             streamManager: streamManager,
                             onClose: {
-                                withAnimation(.easeInOut(duration: 0.2)) {
-                                    showLiveView = false
-                                }
+                                // Same as clicking the menu bar icon: close the window.
+                                NotificationCenter.default.post(name: .closeMenuBarWindow, object: nil)
                             },
                             onSwitchDevice: { newDevice in
                                 selectedDevice = newDevice
                             }
                         )
-                        .frame(height: videoHeight)
+                        .frame(maxHeight: .infinity)
 
                         // Collapsible drawer with event timeline
                         DrawerPanel(
@@ -153,7 +112,7 @@ public struct PopoverView: View {
                         // Footer bar
                         footerBarView
                     }
-                    .frame(width: popoverSize.width)
+                    .frame(maxWidth: .infinity)
                 } else {
                     // Fallback - shouldn't happen in live-first design
                     // Show loading/connecting state
@@ -172,7 +131,10 @@ public struct PopoverView: View {
                 }
             }
         }
-        .frame(width: popoverSize.width)
+        .frame(
+            minWidth: 300, idealWidth: idealSize.width, maxWidth: .infinity,
+            minHeight: 420, idealHeight: idealSize.height, maxHeight: .infinity
+        )
         .animation(.easeInOut(duration: 0.2), value: showLiveView)
         .animation(.spring(response: 0.35, dampingFraction: 0.8), value: isDrawerExpanded)
         .onChange(of: isDrawerExpanded) { _, newValue in
@@ -209,78 +171,30 @@ public struct PopoverView: View {
         }
     }
 
-    // MARK: - Footer Bar with Settings, Branding, and Scale Controls
+    // MARK: - Footer Bar with Settings
 
     @ViewBuilder
     private var footerBarView: some View {
-            ZStack {
-                // App name (absolutely centered)
-                Text("simple-ring")
-                    .font(.system(size: 10, weight: .medium, design: .monospaced))
-                    .foregroundStyle(.white.opacity(0.3))
-
-                // Left/Right controls
-                HStack {
-                    // Settings button (left)
-                    Button {
-                        NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
-                    } label: {
-                        Image(systemName: "gearshape")
-                            .font(.system(size: 12))
-                            .foregroundStyle(.white.opacity(0.5))
-                            .frame(width: 24, height: 24)
-                            .background(.black.opacity(0.4))
-                            .clipShape(Circle())
-                    }
-                    .buttonStyle(.plain)
-                    .help("Settings")
-
-                    Spacer()
-
-                    // Scale controls (right)
-                    HStack(spacing: 4) {
-                        // Scale down button
-                        Button { scaleDown() } label: {
-                            Image(systemName: "minus")
-                                .font(.system(size: 10, weight: .bold))
-                                .foregroundStyle(windowScale > minScale ? .white : .white.opacity(0.3))
-                                .frame(width: 22, height: 22)
-                                .background(.black.opacity(0.5))
-                                .clipShape(Circle())
-                        }
-                        .buttonStyle(.plain)
-                        .disabled(windowScale <= minScale)
-
-                        // Scale indicator (tap to reset)
-                        Button { resetScale() } label: {
-                            Text(String(format: "%.0f%%", windowScale * 100))
-                                .font(.system(size: 10, weight: .medium))
-                                .foregroundStyle(.white.opacity(0.8))
-                        }
-                        .buttonStyle(.plain)
-                        .help("Click to reset to 100%")
-
-                        // Scale up button
-                        Button { scaleUp() } label: {
-                            Image(systemName: "plus")
-                                .font(.system(size: 10, weight: .bold))
-                                .foregroundStyle(windowScale < maxScale ? .white : .white.opacity(0.3))
-                                .frame(width: 22, height: 22)
-                                .background(.black.opacity(0.5))
-                                .clipShape(Circle())
-                        }
-                        .buttonStyle(.plain)
-                        .disabled(windowScale >= maxScale)
-                    }
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 4)
+        HStack {
+            // Settings button
+            Button {
+                openSettings()
+            } label: {
+                Image(systemName: "gearshape")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.white.opacity(0.5))
+                    .frame(width: 24, height: 24)
                     .background(.black.opacity(0.4))
-                    .clipShape(Capsule())
-                }
+                    .clipShape(Circle())
             }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 6)
-            .frame(height: footerHeight)
+            .buttonStyle(.plain)
+            .help("Settings")
+
+            Spacer()
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 6)
+        .frame(height: footerHeight)
     }
 
     // MARK: - Embedded Video Player

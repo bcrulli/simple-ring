@@ -148,13 +148,11 @@ public struct EventTimelinePanel: View {
 // MARK: - Event Filter
 
 enum EventFilter: String, CaseIterable {
-    case all = "All"
     case ring = "Ring"
     case motion = "Motion"
 
     var iconName: String {
         switch self {
-        case .all: return "bell.fill"
         case .ring: return "bell.badge.fill"
         case .motion: return "figure.walk"
         }
@@ -167,11 +165,12 @@ public struct MiniEventTimeline: View {
     let events: [RingEvent]
     let onEventTap: (RingEvent) -> Void
 
-    @State private var selectedFilter: EventFilter = .all
+    // nil means no filter applied (show all events)
+    @State private var selectedFilter: EventFilter?
 
     private var filteredEvents: [RingEvent] {
         switch selectedFilter {
-        case .all:
+        case nil:
             return events
         case .ring:
             return events.filter { $0.kind == .ding }
@@ -182,9 +181,9 @@ public struct MiniEventTimeline: View {
 
     public var body: some View {
         VStack(alignment: .leading, spacing: Spacing.xs) {
-            // Header with filter buttons
+            // Header: total count on the left, filters on the right
             HStack(spacing: Spacing.sm) {
-                Text("Events")
+                Text("\(events.count) event\(events.count == 1 ? "" : "s")")
                     .font(.Ring.caption)
                     .foregroundStyle(.white.opacity(0.6))
 
@@ -199,7 +198,7 @@ public struct MiniEventTimeline: View {
                             count: countForFilter(filter)
                         ) {
                             withAnimation(.easeInOut(duration: 0.15)) {
-                                selectedFilter = filter
+                                selectedFilter = (selectedFilter == filter) ? nil : filter
                             }
                         }
                     }
@@ -210,7 +209,7 @@ public struct MiniEventTimeline: View {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 6) {
                     if filteredEvents.isEmpty {
-                        Text("No \(selectedFilter == .all ? "" : selectedFilter.rawValue.lowercased()) events")
+                        Text("No \(selectedFilter?.rawValue.lowercased() ?? "") events")
                             .font(.Ring.caption)
                             .foregroundStyle(.white.opacity(0.4))
                             .padding(.vertical, 8)
@@ -229,7 +228,6 @@ public struct MiniEventTimeline: View {
 
     private func countForFilter(_ filter: EventFilter) -> Int {
         switch filter {
-        case .all: return events.count
         case .ring: return events.filter { $0.kind == .ding }.count
         case .motion: return events.filter { $0.kind == .motion }.count
         }

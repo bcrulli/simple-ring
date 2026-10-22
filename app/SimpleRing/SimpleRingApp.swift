@@ -11,6 +11,7 @@ struct SimpleRingApp: App {
     init() {
         // Start global hotkey monitoring
         setupGlobalHotkey()
+        setupCloseWindowObserver()
     }
 
     var body: some Scene {
@@ -42,6 +43,20 @@ struct SimpleRingApp: App {
                 if let button = findMenuBarButton() {
                     button.performClick(nil)
                 }
+            }
+        }
+    }
+
+    private func setupCloseWindowObserver() {
+        NotificationCenter.default.addObserver(
+            forName: .closeMenuBarWindow,
+            object: nil,
+            queue: .main
+        ) { _ in
+            Task { @MainActor in
+                // Toggling the same status item button closes the window,
+                // exactly as if the user clicked the menu bar icon again.
+                self.findMenuBarButton()?.performClick(nil)
             }
         }
     }
@@ -88,6 +103,9 @@ struct MainPopoverView: View {
                 loadingView
             }
         }
+        // Lets the user resize the menu bar window by dragging its edges,
+        // like any other macOS window.
+        .background(WindowConfigurator())
     }
 
     private var loadingView: some View {
