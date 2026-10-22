@@ -4,6 +4,7 @@ import DesignSystem
 import RingClient
 import AppKit
 import Combine
+import ServiceManagement
 
 @main
 struct SimpleRingApp: App {
@@ -523,6 +524,21 @@ struct SettingsView: View {
     @AppStorage("pollingInterval") private var pollingInterval = 30
     @AppStorage("showBatteryIndicator") private var showBatteryIndicator = true
     @AppStorage("notificationSound") private var notificationSound = true
+    @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
+
+    private func setLaunchAtLogin(_ enabled: Bool) {
+        do {
+            if enabled {
+                try SMAppService.mainApp.register()
+            } else {
+                try SMAppService.mainApp.unregister()
+            }
+        } catch {
+            ringLog.error("Launch at login change failed: \(error.localizedDescription, privacy: .public)")
+        }
+        // Reflect what macOS actually did (e.g. if the user must approve it)
+        launchAtLogin = SMAppService.mainApp.status == .enabled
+    }
 
     var body: some View {
         Form {
@@ -539,6 +555,13 @@ struct SettingsView: View {
                 .onChange(of: pollingInterval) { _, _ in
                     appState.restartPolling()
                 }
+            }
+
+            Section("General") {
+                Toggle("Launch at Login", isOn: Binding(
+                    get: { launchAtLogin },
+                    set: { setLaunchAtLogin($0) }
+                ))
             }
 
             Section("Display") {
